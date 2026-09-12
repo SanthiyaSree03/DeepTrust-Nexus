@@ -5,10 +5,6 @@ reader = easyocr.Reader(["en"])
 
 
 def extract_text(image_path):
-    """
-    Extract text from a marksheet image.
-    """
-
     results = reader.readtext(image_path)
 
     extracted_text = []
