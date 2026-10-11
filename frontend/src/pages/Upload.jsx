@@ -7,36 +7,104 @@ function Upload() {
   const [file, setFile] = useState(null);
   const [classType, setClassType] = useState("");
   const [board, setBoard] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const handleSubmit = (event) => {
+  const handleFileChange = (event) => {
+    const selectedFile = event.target.files[0];
+    setErrorMessage("");
+
+    if (selectedFile) {
+      if (selectedFile.name.toLowerCase().endsWith(".pdf")) {
+        setErrorMessage("PDF format is not currently supported for OCR. Please upload a JPG or PNG image.");
+        setFile(null);
+        event.target.value = "";
+        return;
+      }
+      setFile(selectedFile);
+    }
+  };
+
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    setErrorMessage("");
 
     if (!file || !classType || !board) {
-      alert("Please complete all fields.");
+      setErrorMessage("Please select a class, board, and marksheet image.");
       return;
     }
 
-    // Backend connection will be added later.
-    navigate("/result");
+    if (file.name.toLowerCase().endsWith(".pdf")) {
+      setErrorMessage("PDF format is not currently supported for OCR. Please upload a JPG or PNG image.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("marksheet", file);
+    formData.append("classType", classType);
+    formData.append("board", board);
+
+    setIsLoading(true);
+
+    try {
+      const response = await fetch("http://localhost:5000/api/verify", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Verification failed. Please check the uploaded image.");
+      }
+
+      // Navigate to results screen with real verification data
+      navigate("/result", {
+        state: {
+          verificationData: data,
+          userInputs: { classType, board },
+        },
+      });
+    } catch (err) {
+      console.error("Upload error:", err);
+      setErrorMessage(err.message || "Failed to connect to backend server. Ensure backend is running on port 5000.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
     <div className="upload-page">
       <div className="upload-container">
-
         <h1>Verify Marksheet</h1>
 
         <p>
-          Upload your 10th or 12th marksheet for verification.
+          Upload your 10th or 12th marksheet for AI OCR scanning &amp; authoritative verification.
         </p>
 
-        <form onSubmit={handleSubmit}>
+        {errorMessage && (
+          <div
+            style={{
+              padding: "12px 16px",
+              marginBottom: "16px",
+              backgroundColor: "#fef2f2",
+              border: "1px solid #f87171",
+              borderRadius: "8px",
+              color: "#b91c1c",
+              fontSize: "14px",
+            }}
+          >
+            ⚠️ {errorMessage}
+          </div>
+        )}
 
+        <form onSubmit={handleSubmit}>
           <label>Class</label>
 
           <select
             value={classType}
             onChange={(event) => setClassType(event.target.value)}
+            disabled={isLoading}
           >
             <option value="">Select Class</option>
             <option value="10">10th</option>
@@ -48,28 +116,35 @@ function Upload() {
           <select
             value={board}
             onChange={(event) => setBoard(event.target.value)}
+            disabled={isLoading}
           >
             <option value="">Select Board</option>
+            <option value="State Board">State Board</option>
             <option value="CBSE">CBSE</option>
             <option value="CISCE">CISCE / ICSE</option>
-            <option value="State Board">State Board</option>
             <option value="Other">Other Board</option>
           </select>
 
-          <label>Marksheet</label>
+          <label>Marksheet (JPG, JPEG, PNG)</label>
 
           <input
             type="file"
-            accept=".pdf,.jpg,.jpeg,.png"
-            onChange={(event) => setFile(event.target.files[0])}
+            accept=".jpg,.jpeg,.png"
+            onChange={handleFileChange}
+            disabled={isLoading}
           />
 
-          <button type="submit">
-            Verify Marksheet
+          <button type="submit" disabled={isLoading} style={{ cursor: isLoading ? "not-allowed" : "pointer", opacity: isLoading ? 0.7 : 1 }}>
+            {isLoading ? "Scanning & Verifying Marksheet..." : "Verify Marksheet"}
           </button>
-
         </form>
 
+        {isLoading && (
+          <div style={{ textAlign: "center", marginTop: "20px", color: "#4b5563" }}>
+            <p>⏳ Preprocessing document &amp; running EasyOCR analysis...</p>
+            <small>This may take a few seconds on CPU.</small>
+          </div>
+        )}
       </div>
     </div>
   );
