@@ -15,12 +15,25 @@ function Upload() {
     setErrorMessage("");
 
     if (selectedFile) {
-      if (selectedFile.name.toLowerCase().endsWith(".pdf")) {
-        setErrorMessage("PDF format is not currently supported for OCR. Please upload a JPG or PNG image.");
+      const allowedExtensions = [".jpg", ".jpeg", ".png", ".pdf"];
+      const fileNameLower = selectedFile.name.toLowerCase();
+      const isValidExt = allowedExtensions.some((ext) => fileNameLower.endsWith(ext));
+
+      if (!isValidExt) {
+        setErrorMessage("Unsupported file format. Please upload a JPG, JPEG, PNG, or PDF marksheet.");
         setFile(null);
         event.target.value = "";
         return;
       }
+
+      const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+      if (selectedFile.size > MAX_FILE_SIZE) {
+        setErrorMessage("File size exceeds 25 MB limit. Please upload a document smaller than 25 MB.");
+        setFile(null);
+        event.target.value = "";
+        return;
+      }
+
       setFile(selectedFile);
     }
   };
@@ -30,12 +43,13 @@ function Upload() {
     setErrorMessage("");
 
     if (!file || !classType || !board) {
-      setErrorMessage("Please select a class, board, and marksheet image.");
+      setErrorMessage("Please select a class, board, and marksheet document.");
       return;
     }
 
-    if (file.name.toLowerCase().endsWith(".pdf")) {
-      setErrorMessage("PDF format is not currently supported for OCR. Please upload a JPG or PNG image.");
+    const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+    if (file.size > MAX_FILE_SIZE) {
+      setErrorMessage("File size exceeds 25 MB limit. Please upload a document smaller than 25 MB.");
       return;
     }
 
@@ -55,7 +69,7 @@ function Upload() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Verification failed. Please check the uploaded image.");
+        throw new Error(data.error || "Verification failed. Please check the uploaded document.");
       }
 
       // Navigate to results screen with real verification data
@@ -125,11 +139,11 @@ function Upload() {
             <option value="Other">Other Board</option>
           </select>
 
-          <label>Marksheet (JPG, JPEG, PNG)</label>
+          <label>Marksheet (JPG, JPEG, PNG, PDF)</label>
 
           <input
             type="file"
-            accept=".jpg,.jpeg,.png"
+            accept=".jpg,.jpeg,.png,.pdf,image/png,image/jpeg,application/pdf"
             onChange={handleFileChange}
             disabled={isLoading}
           />

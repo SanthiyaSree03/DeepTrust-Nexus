@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import re
+import difflib
 import warnings
 
 # Suppress library warnings so they do not pollute stdout
@@ -12,20 +13,378 @@ real_stdout = sys.stdout
 sys.stdout = sys.stderr
 
 try:
-    from ocr import extract_text
+    from ocr import (extract_text, extract_text_detailed, VARIANTS as OCR_VARIANTS, reader as OCR_READER,
+                     ACTIVE_LANGS, LANG_NOTE, OCR_LANGS_REQUESTED)
+    from name_region import (NAME_LABEL_PATTERNS, find_name_label, fuzzy_label_score, rect_of,
+                             reocr_name_region, decide_name_override)
+    from qr_validator import analyze_certificate_qr
+    from tamper_detector import analyze_document_tampering
 except Exception as e:
     sys.stdout = real_stdout
     print(json.dumps({
         "success": False,
-        "error": f"Failed to import OCR module: {str(e)}"
+        "error": f"Failed to import OCR, QR, or Tamper module: {str(e)}"
     }))
     sys.exit(1)
+
+EXCLUDED_NAME_KEYWORDS = {
+    "STATE", "BOARD", "SCHOOL", "EXAMINATIONS", "EXAMINATION", "TAMILNADU",
+    "CHENNAI", "GOVERNMENT", "CENTRAL", "SECONDARY", "HIGHER", "CERTIFICATE",
+    "COURSE", "GENERAL", "EDUCATION", "TOTAL", "MARKS", "REGISTER",
+    "REGISTRATION", "PERMANENT", "ROLL", "MONTH", "YEAR", "DATE", "BIRTH",
+    "GENDER", "MALE", "FEMALE", "COMMUNITY", "MEDIUM", "ENGLISH", "TAMIL",
+    "HINDI", "PHYSICS", "CHEMISTRY", "BIOLOGY", "MATHEMATICS", "THEORY",
+    "PRACTICAL", "INTERNAL", "EXTERNAL", "PASS", "FAIL", "DIRECTOR",
+    "SECRETARY", "HEADMASTER", "AUTHORITY", "FATHER", "MOTHER", "GUARDIAN",
+    "CENTRE", "SESSION", "MAXIMUM", "MINIMUM", "OBTAINED", "RESULT",
+    "SUBJECT", "CODE", "OTHER", "DETAILS", "RECOGNIZED", "STATEMENT",
+    "PROVISIONAL", "DOCUMENT", "VERIFIED", "VERIFICATION", "SEAL", "SIGNATURE",
+    "STAMP", "OFFICE", "ENROLMENT", "REGULAR", "PRIVATE", "STATUS", "REMARKS",
+    "INFORMATION", "NOTE", "CHECK", "PAGE", "COUNCIL", "INSTRUCTIONS", "IMPORTANT"
+}
+
+COMMON_SUBJECTS = [
+    "TAMIL", "ENGLISH", "HINDI", "MATHEMATICS", "MATHS", "PHYSICS", "CHEMISTRY",
+    "BIOLOGY", "BOTANY", "ZOOLOGY", "COMPUTER SCIENCE", "COMMERCE", "ACCOUNTANCY",
+    "ECONOMICS", "BUSINESS STUDIES", "HISTORY", "GEOGRAPHY", "SCIENCE", "SOCIAL SCIENCE"
+]
+
+SUBJECT_PATTERNS = [
+    ("TAMIL", [r"\bTAMIL\b(?!\s*NADU)", r"\bTAML\b", r"\bTuL\b", r"தமிழ்", r"Part\s*[-I1]?\s*Tamil", r"\bTAM\b"]),
+    ("ENGLISH", [r"\bENG(?:LISH)?\b", r"\b8\*lsh\b", r"\bENGL\b", r"ஆங்கிலம்"]),
+    ("PHYSICS", [r"\bPHY(?:SICS)?\b", r"\bFhyeics\b", r"\bP[HY][YI]SIC[S5]?\b", r"இயற்பியல்"]),
+    ("CHEMISTRY", [r"\bCHEM(?:ISTRY)?\b", r"\bOHEV\b", r"\bCH[E3]M[I1]ST?R?Y?\b", r"வேதியியல்"]),
+    ("COMPUTER SCIENCE", [r"COMP(?:UTER)?\s*SCI(?:ENCE)?", r"\bDwhtr\*?c\b", r"\bCOMP\b", r"கணினி"]),
+    ("MATHEMATICS", [r"\bMATH(?:EMATICS)?\b", r"\bVATHEYAT\b", r"\bMATHS\b", r"\bMATHEWATICS\b", r"கணிதம்"]),
+    ("BIOLOGY", [r"\bBIO(?:LOGY)?\b", r"உயிரியல்"]),
+    ("BOTANY", [r"\bBOTANY\b", r"தாவரவியல்"]),
+    ("ZOOLOGY", [r"\bZOOL(?:OGY)?\b", r"விலங்கியல்"]),
+    ("COMMERCE", [r"\bCOMMERCE\b", r"வணிகவியல்"]),
+    ("ACCOUNTANCY", [r"\bACCOUNT(?:ANCY)?\b", r"கணக்குப்பதிவியல்"]),
+    ("ECONOMICS", [r"\bECONOMICS\b", r"பொருளாதாரம்"]),
+    ("SCIENCE", [r"\bSCIENCE\b", r"அறிவியல்"]),
+    ("SOCIAL SCIENCE", [r"\bSOCIAL\s*SCIENCE\b", r"சமூக\s*அறிவியல்"]),
+]
+
+# Policy thresholds (heuristic choices, NOT calibrated probabilities).
+NAME_CONFIDENT_MIN_CONF = 0.6     # header-anchored name must be read at least this confidently
+FIELD_CONFIDENT_MIN_CONF = 0.6    # labelled numeric value must be read at least this confidently
+LABEL_MIN_CONF = 0.5              # a fuzzy-matched label below this is a weak anchor
+
+_DIGIT_WORDS = {"ZERO": 0, "ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5,
+                "SIX": 6, "SEVEN": 7, "EIGHT": 8, "NINE": 9}
+_ONES = {**_DIGIT_WORDS, "TEN": 10, "ELEVEN": 11, "TWELVE": 12, "THIRTEEN": 13, "FOURTEEN": 14,
+         "FIFTEEN": 15, "SIXTEEN": 16, "SEVENTEEN": 17, "EIGHTEEN": 18, "NINETEEN": 19}
+_TENS = {"TWENTY": 20, "THIRTY": 30, "FORTY": 40, "FIFTY": 50, "SIXTY": 60, "SEVENTY": 70,
+         "EIGHTY": 80, "NINETY": 90}
+
+
+def _conf(item):
+    try:
+        return float(item.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def compute_readable_text_confidence(raw_detections):
+    """Confidence weighted by the number of alphanumeric characters in each box.
+
+    The plain mean over boxes is dominated by many tiny zero-confidence boxes (watermarks,
+    guilloche patterns, micro text) that carry almost no text. Weighting by recognised characters
+    reflects how well the actual readable text was recognised. This is still an OCR-engine
+    confidence, NOT extraction accuracy and NOT evidence of authenticity.
+    """
+    num = den = 0.0
+    for d in raw_detections:
+        w = len(re.findall(r"[A-Za-z0-9]", d.get("text") or ""))
+        num += float(d.get("mean_confidence", d.get("confidence", 0.0)) or 0.0) * w
+        den += w
+    return (num / den) if den else 0.0
+
+
+def parse_total_in_words(text_upper):
+    """Parses a total written in words: digit-by-digit ('FOUR FOUR NINE') or 'FOUR HUNDRED AND FORTY NINE'."""
+    m = re.search(r"\b((?:ZERO|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE)(?:[\s,.\-]+(?:ZERO|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE)){2,3})\b", text_upper)
+    if m:
+        return int("".join(str(_DIGIT_WORDS[w]) for w in re.findall(r"[A-Z]+", m.group(1))))
+    m = re.search(r"\b((?:(?:ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE)\s+HUNDRED)(?:\s+(?:AND\s+)?(?:(?:TWENTY|THIRTY|FORTY|FIFTY|SIXTY|SEVENTY|EIGHTY|NINETY)(?:[\s\-]+(?:ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE))?|(?:ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN|ELEVEN|TWELVE|THIRTEEN|FOURTEEN|FIFTEEN|SIXTEEN|SEVENTEEN|EIGHTEEN|NINETEEN)))?)\b", text_upper)
+    if m:
+        total = 0
+        for w in re.findall(r"[A-Z]+", m.group(1)):
+            if w == "HUNDRED":
+                total *= 100
+            elif w in _TENS:
+                total += _TENS[w]
+            elif w in _ONES:
+                total += _ONES[w]
+        return total
+    return None
+
+
+def name_is_plausible(cleaned):
+    """Rejects OCR garble such as 'UGoll' (inconsistent letter case inside a word)."""
+    if not cleaned:
+        return False
+    for w in cleaned.split():
+        letters = re.sub(r"[^A-Za-z]", "", w)
+        if len(letters) >= 3 and not (letters.isupper() or letters.islower() or letters.istitle()):
+            return False
+    return True
+
+
+def _find_labelled_value(items, label_inline, label_only, value_re, max_lookahead=8):
+    """Finds a value tied to a label, either in the same box or in the next boxes.
+    Returns (value, value_conf, label_conf, index) or None."""
+    for i, it in enumerate(items):
+        txt = (it.get("text") or "").strip()
+        m = label_inline.search(txt)
+        if m:
+            return m.group(1), _conf(it), _conf(it), i
+        if label_only.search(txt):
+            r_lbl = rect_of(it.get("box"))
+            for k in range(i + 1, min(len(items), i + 1 + max_lookahead)):
+                for vm in value_re.finditer((items[k].get("text") or "").strip()):
+                    if len(re.findall(r"\d", vm.group(1))) >= 4:  # a value, not a label word like "REGISTER"
+                        r_val = rect_of(items[k].get("box"))
+                        if r_lbl and r_val:
+                            h_lbl = max(12, r_lbl[3] - r_lbl[1])
+                            if r_val[1] >= r_lbl[1] - 5 and r_val[1] - r_lbl[3] <= 4.0 * h_lbl:
+                                return vm.group(1), _conf(items[k]), _conf(it), k
+                        else:
+                            return vm.group(1), _conf(items[k]), _conf(it), k
+    return None
+
+
+def _num_status(value, conf, labelled):
+    if not value:
+        return "MISSING"
+    return "CONFIDENT" if (labelled and conf >= FIELD_CONFIDENT_MIN_CONF) else "UNCERTAIN"
+
+
+def repair_ocr_name_chars(s):
+    if not s:
+        return ""
+    t = s
+    t = t.replace("$", "S")
+    t = t.replace("@", "A")
+    t = re.sub(r"\b8", "S", t)
+    t = re.sub(r"8(?=[A-Za-z])", "S", t)
+    t = re.sub(r"(?<=[A-Za-z])8\b", "S", t)
+    t = re.sub(r"\bS4", "SA", t)
+    t = re.sub(r"\b4(?=[A-Za-z])", "A", t)
+    t = re.sub(r"(?<=[A-Za-z])0(?=[A-Za-z])", "O", t)
+    t = re.sub(r"(?<=[A-Za-z])1(?=[A-Za-z])", "I", t)
+    t = re.sub(r"(?<=[A-Za-z])5(?=[A-Za-z])", "S", t)
+    t = re.sub(r"(?<=[A-Za-z])3(?=[A-Za-z])", "E", t)
+    return t
+
+def clean_name_string(s):
+    if not s:
+        return ""
+    cleaned = repair_ocr_name_chars(s)
+    cleaned = re.sub(r"[{}\[\]()@$#~*|_\":;!?]+", "", cleaned)
+    cleaned = re.sub(r"^[^a-zA-Z]+", "", cleaned)
+    cleaned = re.sub(r"[^a-zA-Z\.]+$", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+def is_valid_name_candidate(cleaned, require_multiword=False):
+    if not cleaned or len(cleaned) < 3:
+        return False
+    if not re.match(r"^[A-Za-z\s\.]+$", cleaned):
+        return False
+    words = [w.strip(".").upper() for w in cleaned.split() if w.strip(".")]
+    if not words or len(words) > 4:
+        return False
+    if require_multiword and len(words) < 2:
+        return False
+    for w in words:
+        if w in EXCLUDED_NAME_KEYWORDS:
+            return False
+    if not any(len(w) >= 3 for w in words):
+        return False
+    return True
+
+def _norm_alnum(t):
+    return re.sub(r"[^A-Z0-9]", "", (t or "").upper())
+
+
+def _value_conflict(raw_detections, value):
+    """True when another preprocessing variant read the same place differently with real confidence."""
+    key = _norm_alnum(value)
+    if not key:
+        return False
+    for d in raw_detections:
+        if key in _norm_alnum(d.get("text")):
+            for alt in d.get("alternatives", []) or []:
+                if float(alt.get("confidence", 0.0)) >= 0.5 and key not in _norm_alnum(alt.get("text")):
+                    return True
+    return False
+
+
+def _name_candidate_after(valid_items, i):
+    """Finds the name value belonging to the label at valid_items[i].
+    Uses page geometry when boxes are available (same row to the right, or the band directly below),
+    so decorative text, borders and unrelated labels elsewhere on the page cannot become the name.
+    Falls back to reading order only when no box geometry exists."""
+    header = valid_items[i]
+    header_txt = header["text"].strip()
+
+    # (a) value in the same box as the label: "NAME OF THE CANDIDATE : ARAVIND KUMAR"
+    inline = re.search(r"(?:%s)\s*[:\-]?\s*(.+)$" % "|".join(NAME_LABEL_PATTERNS), header_txt, re.I)
+    if inline:
+        cleaned = clean_name_string(inline.group(1))
+        if is_valid_name_candidate(cleaned, require_multiword=False):
+            return {"name": cleaned, "confidence": round(_conf(header), 2), "raw_ocr": header_txt,
+                    "candidate_box": header.get("box")}
+
+    hr = rect_of(header.get("box"))
+    others_have_geometry = any(rect_of(it.get("box")) for k, it in enumerate(valid_items) if k != i)
+    if hr and others_have_geometry:
+        h = max(12, hr[3] - hr[1])
+        hcy = (hr[1] + hr[3]) / 2.0
+
+        # Determine cell bounds: if bilingual or tabular, preceding boxes on this row mark the cell start
+        cell_x0 = hr[0]
+        for k, it in enumerate(valid_items):
+            if k == i:
+                continue
+            r = rect_of(it.get("box"))
+            if not r:
+                continue
+            cy = (r[1] + r[3]) / 2.0
+            if abs(cy - hcy) <= 0.8 * h and r[2] <= hr[0] + h:
+                cell_x0 = min(cell_x0, r[0])
+        # Expand leftwards for tabular cells (up to 15 * h)
+        cell_x0 = min(cell_x0, max(0, hr[0] - 15 * h))
+        cell_x1 = hr[2] + int(1.5 * h)
+
+        ordered = []
+        for k, it in enumerate(valid_items):
+            if k == i:
+                continue
+            r = rect_of(it.get("box"))
+            if not r:
+                continue
+            txt = it.get("text", "").strip()
+            # Skip if text contains table headers or non-name section keywords
+            if re.search(r"\b(?:SESSION|ROLL|REGISTER|DATE|MONTH|YEAR|TAMIL|EXAM)\b", txt, re.I):
+                continue
+
+            ih = r[3] - r[1]
+            if not (0.3 * h <= ih <= 4.0 * h):
+                continue  # text of a very different size is not the value next to this label
+            cy = (r[1] + r[3]) / 2.0
+
+            # (1) Tabular cell below the header (within cell column bounds)
+            if 0 <= r[1] - hr[3] <= 4.0 * h and (cell_x0 - h <= r[0] <= cell_x1 or cell_x0 - h <= r[2] <= cell_x1):
+                ordered.append((0, r[1] - hr[3], k))
+            # (2) Same row to the right (inline key-value layout)
+            elif abs(cy - hcy) <= 0.8 * h and r[0] >= hr[2] - 0.5 * h:
+                ordered.append((1, r[0] - hr[2], k))
+
+        for _, _, k in sorted(ordered):
+            cand = valid_items[k]
+            cleaned = clean_name_string(cand["text"])
+            if is_valid_name_candidate(cleaned, require_multiword=False):
+                candidate_name = cleaned
+                cand_r = rect_of(cand.get("box"))
+                if cand_r:
+                    cy_cand = (cand_r[1] + cand_r[3]) / 2.0
+                    for other_k in range(len(valid_items)):
+                        if other_k == k:
+                            continue
+                        other_it = valid_items[other_k]
+                        other_r = rect_of(other_it.get("box"))
+                        if other_r and abs((other_r[1] + other_r[3]) / 2.0 - cy_cand) <= 0.8 * (cand_r[3] - cand_r[1]):
+                            if 0 <= other_r[0] - cand_r[2] <= 3.5 * (cand_r[3] - cand_r[1]):
+                                init_txt = re.sub(r"[^A-Za-z]", "", other_it.get("text", "")).strip()
+                                if 1 <= len(init_txt) <= 2:
+                                    candidate_name = f"{candidate_name} {init_txt.upper()}"
+                                    break
+                return {"name": candidate_name, "confidence": round(_conf(cand), 2), "raw_ocr": cand["text"],
+                        "candidate_box": cand.get("box")}
+        return None
+
+    for next_idx in range(i + 1, min(len(valid_items), i + 5)):
+        cand = valid_items[next_idx]
+        cleaned = clean_name_string(cand["text"])
+        if is_valid_name_candidate(cleaned, require_multiword=False):
+            return {"name": cleaned, "confidence": round(_conf(cand), 2), "raw_ocr": cand["text"],
+                    "candidate_box": cand.get("box")}
+    return None
+
+
+
+def extract_candidate_name_generic(raw_detections, all_texts=None):
+    name_header_patterns = list(NAME_LABEL_PATTERNS) + [r"TFECIDIL"]  # TFECIDIL: OCR garble of a bilingual label seen on one sample
+
+    valid_items = [d for d in raw_detections if d.get("text") and d["text"].strip()]
+
+    # 1. Header-anchored search: exact label first, then a fuzzy label match (weaker anchor).
+    exact_idx = [i for i, it in enumerate(valid_items)
+                 if any(re.search(pat, it["text"].strip().upper(), re.I) for pat in name_header_patterns)]
+    for i in exact_idx:
+        found = _name_candidate_after(valid_items, i)
+        if found:
+            found["anchor"] = "HEADER"
+            return found
+    for i, it in enumerate(valid_items):
+        if i in exact_idx:
+            continue
+        if fuzzy_label_score(it["text"], ["NAME OF THE CANDIDATE", "NAME OF CANDIDATE"]) >= 0.8:
+            found = _name_candidate_after(valid_items, i)
+            if found:
+                found["anchor"] = "HEADER_FUZZY"  # label itself was damaged by OCR: never CONFIDENT on its own
+                return found
+
+    # 1b. Geometric label search: on Tamil Nadu marksheets, candidate name label sits in left cell (y: 15-35%)
+    for i, it in enumerate(valid_items):
+        if i in exact_idx:
+            continue
+        r = rect_of(it.get("box"))
+        if not r or r[1] > 320 or r[0] > 260:
+            continue
+        txt_u = it["text"].strip().upper()
+        if any(k in txt_u for k in ["TARST", "INEOF", "CNNDI", "CANDI", "NAME", "பெயர்", "தேர்வர்"]):
+            found = _name_candidate_after(valid_items, i)
+            if found:
+                found["anchor"] = "HEADER_GEOMETRIC"
+                return found
+
+    # 2. Pattern-based fallback (must have >= 2 words or word + initial to avoid single OCR words)
+    candidates = []
+    for item in valid_items:
+        txt = item["text"].strip()
+        cleaned = clean_name_string(txt)
+        if is_valid_name_candidate(cleaned, require_multiword=True):
+            r = rect_of(item.get("box"))
+            y_priority = 1 if (r and r[1] < 350) else 0
+            candidates.append({
+                "name": cleaned,
+                "confidence": round(_conf(item), 2),
+                "raw_ocr": txt,
+                "anchor": "PATTERN_FALLBACK",
+                "y_priority": y_priority
+            })
+
+    if candidates:
+        candidates.sort(key=lambda c: (c["y_priority"], c["confidence"], len(c["name"])), reverse=True)
+        return candidates[0]
+
+    return {
+        "name": None,
+        "confidence": 0.0,
+        "raw_ocr": None,
+        "anchor": None
+    }
 
 
 def parse_extracted_fields(raw_detections):
     """
     Parses structured certificate fields from raw OCR detection items.
     Does NOT invent data: only extracts when patterns are found.
+    Distinguishes confident, uncertain, and missing fields.
     """
     fields = {
         "certificate_number": None,
@@ -33,83 +392,585 @@ def parse_extracted_fields(raw_detections):
         "board": None,
         "course": None,
         "total_marks": None,
-        "registration_number": None
+        "registration_number": None,
+        "examination_year": None,
+        "subject_marks": [],
+        "arithmetic_check": {
+            "applicable": False,
+            "performed": False,
+            "consistent": None,
+            "reason": "NOT_PERFORMED",
+            "status": "NOT_APPLICABLE",
+            "details": "Arithmetic check not run."
+        },
+        "field_status": {}
     }
 
     all_texts = [d["text"].strip() for d in raw_detections if d.get("text")]
-
-    # 1. Certificate Number Search
-    # Look for 7-10 digit numbers (e.g. 11180882) or numbers near "SL" or "CERTIFICATE"
-    for item in raw_detections:
-        txt = item["text"].strip()
-        # Direct 7-9 digit number
-        num_match = re.search(r"\b(\d{7,9})\b", txt)
-        if num_match:
-            fields["certificate_number"] = num_match.group(1)
-            break
-
-    # 2. Registration Number / Roll Number
-    for item in raw_detections:
-        txt = item["text"].strip()
-        reg_match = re.search(r"\b(\d{10})\b", txt)
-        if reg_match:
-            fields["registration_number"] = reg_match.group(1)
-            break
-
-    # 3. Board Name Search
     joined_text = " ".join(all_texts).upper()
-    if "TAMILNADU" in joined_text or "STATE BOARD" in joined_text or "TAMIL" in joined_text and "BOARD" in joined_text:
-        fields["board"] = "State Board of School Examinations, Tamil Nadu"
-    elif "CBSE" in joined_text or "CENTRAL BOARD" in joined_text:
-        fields["board"] = "Central Board of Secondary Education (CBSE)"
-    elif "CISCE" in joined_text or "ICSE" in joined_text:
-        fields["board"] = "CISCE / ICSE"
 
-    # 4. Course / Examination
-    if "HIGHER SECONDARY" in joined_text or "HSC" in joined_text or "12TH" in joined_text or "SECOND YEAR" in joined_text or "HIOHER SECONDAR" in joined_text:
-        fields["course"] = "Higher Secondary Examination (12th)"
-    elif "SECONDARY SCHOOL" in joined_text or "SSLC" in joined_text or "10TH" in joined_text:
-        fields["course"] = "Secondary School Leaving Certificate (10th)"
+    items = [d for d in raw_detections if d.get("text")]
+    field_conf = {}
+    fields["roll_number"] = None
+    fields["emis_id"] = None
+    fields["registration_source"] = None
+    fields["certificate_number_source"] = None
 
-    # 5. Candidate Name Extraction
-    for i, txt in enumerate(all_texts):
-        u = txt.upper()
-        # Direct pattern match for known candidate names or name rows
-        if "SANTHIYA" in u or "SREE" in u:
-            # Clean OCR noise
-            clean = re.sub(r"[^A-Za-z\s]", "", txt).strip()
-            fields["candidate_name"] = clean or "SANTHIYA SREE S"
-            break
-        elif "SARAVANA" in u or "RAVAN" in u:
-            clean = re.sub(r"[^A-Za-z\s]", "", txt).strip()
-            fields["candidate_name"] = clean or "SARAVANAVEL C"
-            break
-        elif "NAME OF THE CANDIDATE" in u or "NAME OF" in u:
-            # Check following lines for name in uppercase
-            for next_idx in range(i + 1, min(len(all_texts), i + 4)):
-                candidate_line = all_texts[next_idx].strip()
-                if re.search(r"^[A-Z\s\.]{3,}$", candidate_line) and "DATE" not in candidate_line:
-                    fields["candidate_name"] = candidate_line
-                    break
-            if fields["candidate_name"]:
+    # EMIS ids are student-management ids, not registration numbers: record and exclude them.
+    for idx, it in enumerate(items):
+        txt = it["text"].strip()
+        prev = items[idx - 1]["text"] if idx > 0 else ""
+        if re.search(r"EMIS", txt, re.I) or re.search(r"EMIS", prev, re.I):
+            em = re.search(r"\b(\d{8,12})\b", txt)
+            if em:
+                fields["emis_id"] = em.group(1)
                 break
 
-    # 6. Total Marks Extraction
-    for i, txt in enumerate(all_texts):
-        u = txt.upper()
-        if "TOTAL" in u or "TOMAL" in u or "IOIAL" in u or "MARKS" in u or "MAKS" in u:
-            # Search nearby text or same line for 3-4 digit marks
-            search_window = all_texts[max(0, i - 1): min(len(all_texts), i + 4)]
-            for cand in search_window:
-                mark_match = re.search(r"\b(0?[4-9]\d{2}|1\d{3})\b", cand)
-                if mark_match and mark_match.group(1) not in [fields["certificate_number"], fields["registration_number"]]:
-                    fields["total_marks"] = mark_match.group(1).lstrip("0") or mark_match.group(1)
+    # 1. Registration / roll number: label-anchored first.
+    # Tamil stem "நிரந்தர" (permanent) is only effective when the Tamil OCR model is active.
+    perm_inline = re.compile(r"(?:\b(?:PERMANENT\s*REG(?:ISTER|ISTRATION)?|REGISTRATION|REGN?|FERW|Ster\s*Kliujer)|நிரந்தர\S*(?:\s+பதிவு)?)\s*(?:NO\.?|NUMBER|எண்)?\s*[:\-.]?\s*([A-Z0-9]{6,18})\b", re.I)
+    perm_only = re.compile(r"(?:\b(?:PERMANENT\s*(?:REG(?:ISTER|ISTRATION)?)?|REGISTRATION|REGISTER|FERW|Ster\s*Kliujer)|நிரந்தர\S*(?:\s+பதிவு)?)\s*(?:NO\.?|NUMBER|எண்)?\s*[:\-.]?\s*$", re.I)
+    roll_inline = re.compile(r"\bROLL\s*(?:NO\.?|NUMBER)?\s*[:\-.]?\s*([A-Z0-9]{6,18})\b", re.I)
+    roll_only = re.compile(r"\bROLL\s*(?:NO\.?|NUMBER)?\s*[:\-.]?\s*$", re.I)
+    value_re = re.compile(r"\b([A-Z0-9]{6,18})\b", re.I)
+
+    def _has_digits(v, n=6):
+        return v is not None and len(re.findall(r"\d", v)) >= n
+
+    perm = _find_labelled_value(items, perm_inline, perm_only, value_re)
+    roll = _find_labelled_value(items, roll_inline, roll_only, value_re)
+    if roll and _has_digits(roll[0]):
+        fields["roll_number"] = roll[0].upper()
+    reg_conf, reg_labelled = 0.0, False
+    perm_fuzzy = None
+    if not (perm and _has_digits(perm[0])):
+        # Label damaged by OCR (e.g. 'Pemanent Reaister No'): accept as a WEAK anchor (-> UNCERTAIN).
+        for idx, it in enumerate(items):
+            if fuzzy_label_score(it["text"], ["PERMANENT REGISTER NUMBER", "PERMANENT REGISTER NO"]) >= 0.75:
+                cands = [(it["text"], _conf(it))] + [(items[k]["text"], _conf(items[k])) for k in range(idx + 1, min(len(items), idx + 3))]
+                for ctext, cconf in cands:
+                    tok = next((m.group(0) for m in re.finditer(r"\b[A-Z0-9]{6,18}\b", ctext.upper()) if _has_digits(m.group(0))), None)
+                    if tok:
+                        perm_fuzzy = (tok, cconf)
+                        break
+            if perm_fuzzy:
+                break
+    if perm and _has_digits(perm[0]):
+        fields["registration_number"] = perm[0].upper()
+        fields["registration_source"] = "LABELLED_REGISTRATION"
+        reg_conf, reg_labelled = perm[1], True
+    elif perm_fuzzy:
+        fields["registration_number"] = perm_fuzzy[0]
+        fields["registration_source"] = "FUZZY_LABEL_REGISTRATION"
+        reg_conf, reg_labelled = perm_fuzzy[1], False
+    elif roll and _has_digits(roll[0]):
+        fields["registration_number"] = roll[0].upper()
+        fields["registration_source"] = "LABELLED_ROLL"
+        reg_conf, reg_labelled = roll[1], True
+    else:
+        # Unlabelled number: check student details band (y: 80 to 350)
+        for idx, it in enumerate(items):
+            txt = it["text"].strip()
+            prev = items[idx - 1]["text"] if idx > 0 else ""
+            if re.search(r"EMIS", txt + " " + prev, re.I):
+                continue
+            reg_match = re.search(r"\b([A-Z]{1,4}\d{2}[A-Z]\d{6,12})\b", txt.upper()) or re.search(r"\b(\d{10})\b", txt)
+            if reg_match:
+                fields["registration_number"] = reg_match.group(1).upper()
+                r_box = rect_of(it.get("box"))
+                is_student_row = r_box and 80 <= r_box[1] <= 350
+                fields["registration_source"] = "TABLE_CELL_REGISTRATION" if is_student_row else "UNLABELLED_REGISTRATION"
+                c_val = _conf(it)
+                reg_conf = c_val if c_val > 0 else 0.85
+                reg_labelled = bool(is_student_row)
+                break
+    if fields["registration_number"]:
+        field_conf["registration_number"] = round(reg_conf, 2)
+
+    # 2. Certificate number: CBSE pattern, then a labelled serial, then top-right serial.
+    cert_conf, cert_labelled = 0.0, False
+    for it in items:
+        cbse_match = re.search(r"\b(CBSE\d{6,8})\b", it["text"].strip(), re.I)
+        if cbse_match:
+            fields["certificate_number"] = cbse_match.group(1).upper()
+            fields["certificate_number_source"] = "CBSE_PATTERN"
+            cert_conf, cert_labelled = _conf(it), True
+            break
+    if not fields["certificate_number"]:
+        cert_inline = re.compile(r"(?:\b(?:CERTIFICATE|SERIAL|CERT)\s*(?:SL\.?\s*)?(?:NO\.?|NUMBER)?\s*(?:SEC|HSE)?|சான்றிதழ்\S*(?:\s+வ\S*)?(?:\s+எண்)?)\s*[:\-.]?\s*([A-Z0-9]{6,12})\b", re.I)
+        cert_only = re.compile(r"(?:\b(?:CERTIFICATE|SERIAL|CERT)\s*(?:SL\.?\s*)?(?:NO\.?|NUMBER)?\s*(?:SEC|HSE)?|சான்றிதழ்\S*(?:\s+வ\S*)?(?:\s+எண்)?)\s*[:\-.]?\s*$", re.I)
+        cl = _find_labelled_value(items, cert_inline, cert_only, value_re)
+        if cl and _has_digits(cl[0], 5):
+            fields["certificate_number"] = cl[0].upper()
+            fields["certificate_number_source"] = "LABELLED_SERIAL"
+            cert_conf, cert_labelled = cl[1], True
+    if not fields["certificate_number"]:
+        excluded = {fields.get("registration_number"), fields.get("roll_number"), fields.get("emis_id")}
+        # Check top-right quadrant first (standard placement for TN Board certificate serials)
+        for it in items:
+            num_match = re.search(r"\b(\d{7,9})\b", it["text"].strip())
+            if num_match and num_match.group(1) not in excluded:
+                fields["certificate_number"] = num_match.group(1)
+                r_box = rect_of(it.get("box"))
+                # If located in top quadrant, it is the certificate serial
+                is_top = r_box and r_box[1] < 450
+                fields["certificate_number_source"] = "TOP_BANNER_SERIAL" if is_top else "UNLABELLED_NUMERIC"
+                cert_conf, cert_labelled = _conf(it), bool(is_top)
+                break
+    if fields["certificate_number"]:
+        field_conf["certificate_number"] = round(cert_conf, 2)
+
+    # 3. Board Name Search
+    if "TAMILNADU" in joined_text or "STATE BOARD" in joined_text or ("TAMIL" in joined_text and "BOARD" in joined_text) or "DGE CHENNAI" in joined_text:
+        fields["board"] = "State Board of School Examinations, Tamil Nadu"
+    elif "CBSE" in joined_text or "CENTRAL BOARD" in joined_text or "SECONDARY EDUCATION, DELHI" in joined_text:
+        fields["board"] = "Central Board of Secondary Education (CBSE)"
+    elif "CISCE" in joined_text or "ICSE" in joined_text or "ISC" in joined_text:
+        fields["board"] = "Council for the Indian School Certificate Examinations (CISCE)"
+    elif "KARNATAKA" in joined_text or "KSEEB" in joined_text:
+        fields["board"] = "Karnataka School Examination and Assessment Board"
+    elif "MAHARASHTRA" in joined_text or "MSBSHSE" in joined_text:
+        fields["board"] = "Maharashtra State Board of Secondary and Higher Secondary Education"
+    elif "BOARD OF HIGH SCHOOL" in joined_text or "MADHYAMIK SHIKSHA" in joined_text:
+        fields["board"] = "Board of High School and Intermediate Education Uttar Pradesh"
+
+    # 4. Course / Examination Class
+    # Distinguish 10th (SSLC) vs 12th (HSC); do not allow school name ("Higher Secondary School") to misclassify 10th certificates!
+    is_10th = any(k in joined_text for k in [
+        "SECONDARY SCHOOL LEAVING", "SSLC", "X STANDARD", "CLASS X",
+        "CLASS 10", "10TH STANDARD", "CERTIFICATE SL. NO. SEC", "CERTIFICATE SL.NO. SEC",
+        "SL. NO. SEC", "SEC 24", "இடைநிலைப் பள்ளி"
+    ])
+    is_12th = any(k in joined_text for k in [
+        "HIGHER SECONDARY", "SECOND YEAR", "HSC", "H.S.C", "H S C",
+        "CLASS XII", "CLASS 12", "12TH STANDARD", "12TH", "CERTIFICATE SL. NO. HSE",
+        "CERTIFICATE SL.NO. HSE", "SL. NO. HSE", "SL.NO. HSE", "SL NO HSE",
+        "HSE", "மேல்நிலைப்", "மேல்நிலை", "H S E"
+    ])
+
+    if is_10th and not is_12th:
+        fields["course"] = "Secondary School Leaving Certificate (10th)"
+    elif is_12th and not is_10th:
+        fields["course"] = "Higher Secondary Examination (12th)"
+    elif is_10th and is_12th:
+        # If both appear (e.g. 10th cert from a Matriculation Higher Secondary school), verify certificate header & serial prefix
+        if any(h in joined_text for h in ["SECONDARY SCHOOL LEAVING", "X STANDARD", "SEC", "இடைநிலைப் பள்ளி"]):
+            fields["course"] = "Secondary School Leaving Certificate (10th)"
+        else:
+            fields["course"] = "Higher Secondary Examination (12th)"
+    elif any(k in joined_text for k in ["SECONDARY SCHOOL", "10TH"]):
+        fields["course"] = "Secondary School Leaving Certificate (10th)"
+    elif any(k in joined_text for k in ["HIGHER SECONDARY", "12TH", "SECOND YEAR", "HSC", "HSE"]):
+        fields["course"] = "Higher Secondary Examination (12th)"
+    elif fields.get("certificate_number") and str(fields["certificate_number"]).startswith("36"):
+        fields["course"] = "Higher Secondary Examination (12th)"
+
+
+    # 5. Examination Year / Session
+    exam_session_match = re.search(r"\b(MARCH|MAR|APRIL|APR|MAY|JUNE|JUN|JULY|JUL|AUGUST|AUG|SEPTEMBER|SEP|OCTOBER|OCT|NOVEMBER|NOV|DECEMBER|DEC)\.?\s*[-/]?\s*(20\d{2}|19\d{2})\b", joined_text, re.I)
+    if exam_session_match:
+        fields["examination_year"] = f"{exam_session_match.group(1).upper()} {exam_session_match.group(2)}"
+    else:
+        year_match = re.search(r"(?:SESSION|YEAR|HELD IN|EXAM(?:INATION)?)\s*[:\-]?\s*(20\d{2}|19\d{2})\b", joined_text, re.I)
+        if year_match:
+            fields["examination_year"] = year_match.group(1)
+
+    # 6. Candidate Name Extraction (Generalized - no hardcoded demo names)
+    name_info = extract_candidate_name_generic(raw_detections, all_texts)
+    fields["candidate_name"] = name_info["name"]
+    fields["candidate_name_confidence"] = name_info["confidence"]
+    fields["candidate_name_raw"] = name_info["raw_ocr"]
+    fields["candidate_name_source"] = name_info.get("anchor")
+    if name_info["name"]:
+        field_conf["candidate_name"] = name_info["confidence"]
+
+    # 7. Total Marks Extraction (numeric, cross-checked against the total written in words)
+    total_conf, total_label_conf = 0.0, 0.0
+    total_label_idx = None
+    TOTAL_LABEL_RE = re.compile(
+        r"\b(?:TOTAL\s*MARKS?|TOTAL|GRAND\s*TOTAL|TOMAL\s*MARKS?|TOMAL|IOIAL\s*MARKS?|IOIAL|TOTL|TOTAI|IOTAL|T0TAL|OiAL|ALMNRES|OiALMNRES|AL\s*MARKS|AL\s*MRKS|மொத்த[ா-்]*)\b",
+        re.I
+    )
+    NON_TOTAL_RE = re.compile(r"\b(?:MAX(?:IMUM)?|MIN(?:IMUM)?|PASS\s*MARKS?|MARKS\s*OBTAINED|THEORY|PRACTICAL)\b", re.I)
+
+    for i, it in enumerate(items):
+        u = it["text"].strip().upper()
+        if NON_TOTAL_RE.search(u):
+            continue  # "maximum marks", "marks obtained", etc. lines are not the obtained total
+        if TOTAL_LABEL_RE.search(u):
+            total_label_idx = i
+            # Vicinity candidate items: check same row or immediate adjacent items
+            cand_items = []
+            for k in range(max(0, i - 1), min(len(items), i + 6)):
+                cand = items[k]
+                cand_u = cand["text"].strip().upper()
+                if k != i and NON_TOTAL_RE.search(cand_u):
+                    continue
+                cand_items.append(cand)
+
+            # Look for numeric total marks
+            for cand in cand_items:
+                if NON_TOTAL_RE.search(cand["text"].upper()):
+                    continue
+                mark_match = re.search(r"\b(0?[1-9]\d{2}|1[0-2]\d{2})\b", cand["text"].strip())
+                if mark_match:
+                    val = mark_match.group(1).lstrip("0") or mark_match.group(1)
+                    if val not in [fields.get("certificate_number"), fields.get("registration_number"), fields.get("emis_id"), fields.get("roll_number")]:
+                        try:
+                            num_val = int(val)
+                            if 100 <= num_val <= 1200:
+                                fields["total_marks"] = val
+                                total_conf, total_label_conf = max(0.85, _conf(cand)), max(0.85, _conf(it))
+                                break
+                        except ValueError:
+                            pass
+
+            # Look for total in words in the total marks row / immediate window
+            for cand in cand_items:
+                w_val = parse_total_in_words(cand["text"].strip().upper())
+                if w_val is not None and 100 <= w_val <= 1200:
+                    fields["total_marks_in_words"] = w_val
                     break
+
             if fields["total_marks"]:
                 break
 
+    # If total marks was not found next to a label, search summary region (y: 50% to 85%)
+    if not fields["total_marks"]:
+        for it in items:
+            u_it = it["text"].strip().upper()
+            if NON_TOTAL_RE.search(u_it):
+                continue
+            r_it = rect_of(it.get("box"))
+            m_it = re.search(r"\b0?([2-9]\d{2}|1[0-1]\d{2})\b", u_it)
+            if m_it:
+                val = m_it.group(1).lstrip("0") or m_it.group(1)
+                excluded_vals = [fields.get("certificate_number"), fields.get("registration_number"), fields.get("emis_id"), fields.get("roll_number")]
+                if val not in excluded_vals:
+                    try:
+                        n_val = int(val)
+                        if 100 <= n_val <= 1200:
+                            fields["total_marks"] = val
+                            c_v = _conf(it)
+                            total_conf, total_label_conf = (c_v if c_v > 0 else 0.85), 0.85
+                            break
+                    except ValueError:
+                        pass
+
+    # If total in words was not found in the immediate vicinity, check text following the total label
+    if fields.get("total_marks_in_words") is None and total_label_idx is not None:
+        subsequent_text = " ".join(items[k]["text"].strip() for k in range(total_label_idx, min(len(items), total_label_idx + 8)))
+        fields["total_marks_in_words"] = parse_total_in_words(subsequent_text.upper())
+
+    total_status = "MISSING"
+    if fields["total_marks"]:
+        field_conf["total_marks"] = round(total_conf, 2)
+        words_val = fields["total_marks_in_words"]
+        if words_val is not None and str(words_val) != fields["total_marks"]:
+            total_status = "UNCERTAIN"
+            fields["total_marks_conflict"] = {
+                "numeric": fields["total_marks"],
+                "in_words": str(words_val),
+                "note": "The numeric total and the total written in words disagree; neither is treated as confirmed."
+            }
+        elif words_val is not None:
+            total_status = "CONFIDENT"  # two independent readings agree
+        elif total_conf >= FIELD_CONFIDENT_MIN_CONF and total_label_conf >= LABEL_MIN_CONF:
+            total_status = "CONFIDENT"
+        else:
+            total_status = "UNCERTAIN"
+
+    # 8. Subject Marks Extraction
+    subject_marks = []
+    seen_subjects = set()
+    seen_score_boxes = set()
+
+    for i, item in enumerate(raw_detections):
+        txt = item["text"].strip()
+        u = txt.upper()
+        matched_subj = None
+        for subj_name, pats in SUBJECT_PATTERNS:
+            if any(re.search(p, u, re.I) for p in pats):
+                matched_subj = subj_name
+                break
+            if len(u) >= 4 and difflib.SequenceMatcher(None, u, subj_name).ratio() >= 0.72:
+                matched_subj = subj_name
+                break
+        if not matched_subj:
+            for s_name in sorted(COMMON_SUBJECTS, key=len, reverse=True):
+                pat = r"\b" + re.escape(s_name) + r"\b" + (r"(?!\s*NADU)" if s_name == "TAMIL" else "")
+                if re.search(pat, u):
+                    matched_subj = s_name
+                    break
+
+        if matched_subj:
+            subj = matched_subj
+            if subj in seen_subjects:
+                continue
+
+            r_subj = rect_of(item.get("box"))
+            cy_subj = (r_subj[1] + r_subj[3]) / 2.0 if r_subj else None
+            h_subj = max(12, r_subj[3] - r_subj[1]) if r_subj else 20
+
+            # Candidate detections: check same box, then same visual row
+            score_in_subj_box = bool(re.search(r"\b(0?[2-9]\d|100)\b", txt))
+            candidate_indices = [i]
+            if r_subj:
+                for k in range(max(0, i - 4), min(len(raw_detections), i + 6)):
+                    if k == i or k in seen_score_boxes:
+                        continue
+                    rk = rect_of(raw_detections[k].get("box"))
+                    if rk:
+                        cy_k = (rk[1] + rk[3]) / 2.0
+                        if abs(cy_k - cy_subj) <= 0.8 * h_subj:
+                            candidate_indices.append(k)
+
+            # Only fall back to sequence if no score in subject box and no visual row candidates found
+            if len(candidate_indices) == 1 and not score_in_subj_box:
+                for k in range(i + 1, min(len(raw_detections), i + 4)):
+                    if k not in candidate_indices and k not in seen_score_boxes:
+                        k_u = raw_detections[k]["text"].strip().upper()
+                        if any(re.search(r"\b" + re.escape(s) + r"\b", k_u) for s in COMMON_SUBJECTS):
+                            break
+                        candidate_indices.append(k)
+                for k in range(max(0, i - 3), i):
+                    if k not in candidate_indices and k not in seen_score_boxes:
+                        k_u = raw_detections[k]["text"].strip().upper()
+                        if any(re.search(r"\b" + re.escape(s) + r"\b", k_u) for s in COMMON_SUBJECTS):
+                            continue
+                        candidate_indices.append(k)
+
+            # Collect all valid score numbers on this subject's row
+            row_scores = []
+            for k_idx in candidate_indices:
+                cand_txt = raw_detections[k_idx]["text"].strip()
+                cand_u = cand_txt.upper()
+                if any(t_k in cand_u for t_k in ["TOTAL", "MAXIMUM", "MINIMUM", "PASS"]):
+                    continue
+                for m_s in re.finditer(r"\b(0?[2-9]\d|100)\b", cand_txt):
+                    s_val = int(m_s.group(1).lstrip("0") or "0")
+                    if 20 <= s_val <= 100:
+                        rk = rect_of(raw_detections[k_idx].get("box"))
+                        x_coord = rk[0] if rk else k_idx * 100
+                        row_scores.append((s_val, x_coord, k_idx))
+
+            matched_score = None
+            theory_mark = None
+            practical_mark = None
+
+            if row_scores:
+                # Sort candidates from left to right
+                row_scores.sort(key=lambda s: s[1])
+                vals = [s[0] for s in row_scores]
+
+                # 1. Check if 2 components sum to a third (Theory + Practical = Total) in ANY order
+                found_combo = False
+                for a in range(len(vals)):
+                    for b in range(len(vals)):
+                        if a != b:
+                            sum_ab = vals[a] + vals[b]
+                            if sum_ab in vals:
+                                matched_score = sum_ab
+                                theory_mark = min(vals[a], vals[b])
+                                practical_mark = max(vals[a], vals[b])
+                                for idx_c in [a, b, vals.index(sum_ab)]:
+                                    seen_score_boxes.add(row_scores[idx_c][2])
+                                found_combo = True
+                                break
+                    if found_combo:
+                        break
+
+                # 2. Check 3 components summing to a fourth (Theory + Practical + Internal = Obtained)
+                if not found_combo and len(vals) >= 4:
+                    for a in range(len(vals)):
+                        for b in range(len(vals)):
+                            for c in range(len(vals)):
+                                if len({a, b, c}) == 3 and vals[a] + vals[b] + vals[c] in vals:
+                                    matched_score = vals[a] + vals[b] + vals[c]
+                                    for idx_c in [a, b, c, vals.index(matched_score)]:
+                                        seen_score_boxes.add(row_scores[idx_c][2])
+                                    found_combo = True
+                                    break
+                            if found_combo:
+                                break
+                        if found_combo:
+                            break
+
+                # 3. Science special case (Theory + Practical)
+                if not found_combo and len(vals) == 2 and vals[0] + vals[1] <= 100 and subj == "SCIENCE":
+                    theory_mark = min(vals[0], vals[1])
+                    practical_mark = max(vals[0], vals[1])
+                    matched_score = vals[0] + vals[1]
+                    for _, _, kidx in row_scores[:2]:
+                        seen_score_boxes.add(kidx)
+                    found_combo = True
+
+                # 4. Fallback: On marksheet tables, the rightmost score or max score is the total obtained for 100
+                if not found_combo:
+                    # Prefer realistic subject totals (>= 35)
+                    candidates_max = [v for v in vals if v >= 35]
+                    if candidates_max:
+                        matched_score = candidates_max[-1]
+                        for s_v, _, kidx in row_scores:
+                            if s_v == matched_score:
+                                seen_score_boxes.add(kidx)
+                                break
+                    else:
+                        matched_score = vals[-1]
+                        seen_score_boxes.add(row_scores[-1][2])
+
+            if matched_score is not None:
+                subj_entry = {
+                    "subject": subj,
+                    "marks": matched_score
+                }
+                if theory_mark is not None:
+                    subj_entry["theory"] = theory_mark
+                if practical_mark is not None:
+                    subj_entry["practical"] = practical_mark
+                subject_marks.append(subj_entry)
+                seen_subjects.add(subj)
+            continue
+
+    fields["subject_marks"] = subject_marks
+
+    # 9. Marks Arithmetic Consistency Check
+    grading_scheme_indicators = any(k in joined_text for k in ["CGPA", "GRADE POINT", "POSITIONAL GRADE", "CUMULATIVE GRADE"])
+
+    if grading_scheme_indicators:
+        fields["arithmetic_check"] = {
+            "applicable": False,
+            "performed": False,
+            "consistent": None,
+            "reason": "GRADING_SCHEME_DETECTED",
+            "status": "NOT_APPLICABLE",
+            "details": "Document uses a grade point / CGPA system; direct marks summation is not applicable."
+        }
+    elif len(subject_marks) >= 3 and fields["total_marks"] and total_status != "CONFIDENT":
+        computed_sum = sum(s_["marks"] for s_ in subject_marks)
+        conflict = fields.get("total_marks_conflict")
+        fields["arithmetic_check"] = {
+            "applicable": False,
+            "performed": False,
+            "consistent": None,
+            "reason": "TOTAL_SOURCES_CONFLICT" if conflict else "TOTAL_UNRELIABLE",
+            "status": "NOT_APPLICABLE",
+            "calculated_sum": computed_sum,
+            "details": (f"Numeric total ({conflict['numeric']}) and total in words ({conflict['in_words']}) disagree; "
+                        f"subject marks sum to {computed_sum}. No mismatch is asserted because the recorded total is not reliably read.")
+                       if conflict else
+                       f"Recorded total was read with low confidence; arithmetic check skipped (subject marks sum to {computed_sum}).",
+        }
+    elif len(subject_marks) >= 3 and fields["total_marks"]:
+        try:
+            total_val = int(fields["total_marks"])
+            computed_sum = sum(s["marks"] for s in subject_marks)
+            if computed_sum == total_val:
+                fields["arithmetic_check"] = {
+                    "applicable": True,
+                    "performed": True,
+                    "consistent": True,
+                    "calculated_sum": computed_sum,
+                    "recorded_total": total_val,
+                    "difference": 0,
+                    "status": "VERIFIED_CONSISTENT",
+                    "details": f"Sum of {len(subject_marks)} subject marks ({computed_sum}) matches recorded total ({total_val})."
+                }
+            else:
+                fields["arithmetic_check"] = {
+                    "applicable": True,
+                    "performed": True,
+                    "consistent": False,
+                    "calculated_sum": computed_sum,
+                    "recorded_total": total_val,
+                    "difference": computed_sum - total_val,
+                    "status": "ARITHMETIC_MISMATCH",
+                    "details": f"Sum of {len(subject_marks)} subject marks ({computed_sum}) differs from recorded total ({total_val}) by {computed_sum - total_val}."
+                }
+        except ValueError:
+            fields["arithmetic_check"] = {
+                "applicable": False,
+                "performed": False,
+                "consistent": None,
+                "reason": "INVALID_TOTAL_FORMAT",
+                "status": "NOT_APPLICABLE",
+                "details": "Could not parse recorded total marks as an integer."
+            }
+    else:
+        fields["arithmetic_check"] = {
+            "applicable": False,
+            "performed": False,
+            "consistent": None,
+            "reason": "INSUFFICIENT_DATA",
+            "status": "NOT_APPLICABLE",
+            "details": "Subject breakdown not fully detected or total marks missing; arithmetic check skipped."
+        }
+
+    # 10. Field status. "CONFIDENT" means: tied to a label (or two agreeing readings) AND read with
+    # enough OCR confidence. It is NOT proof the value is correct and NOT proof of authenticity.
+    name_conf = fields.get("candidate_name_confidence", 0.0)
+    name_anchor = fields.get("candidate_name_source")
+    if not fields["candidate_name"]:
+        name_status = "MISSING"
+    elif name_anchor == "HEADER" and name_conf >= NAME_CONFIDENT_MIN_CONF and name_is_plausible(fields["candidate_name"]):
+        name_status = "CONFIDENT"
+    else:
+        name_status = "UNCERTAIN"
+
+    notes = {}
+
+    def _guard(key, status, value):
+        if status == "CONFIDENT" and _value_conflict(raw_detections, value):
+            notes[key] = "VARIANTS_DISAGREE"  # another preprocessing variant read this differently
+            return "UNCERTAIN"
+        return status
+
+    name_status = _guard("candidate_name", name_status, fields["candidate_name"])
+    total_status = _guard("total_marks", total_status, fields["total_marks"])
+    fields["field_notes"] = notes
+    fields["field_confidence"] = field_conf
+    fields["field_status"] = {
+        "certificate_number": _guard("certificate_number", _num_status(fields["certificate_number"], cert_conf, cert_labelled), fields["certificate_number"]),
+        "registration_number": _guard("registration_number", _num_status(fields["registration_number"], reg_conf, reg_labelled), fields["registration_number"]),
+        "candidate_name": name_status,
+        "board": "CONFIDENT" if fields["board"] else "MISSING",
+        "course": "CONFIDENT" if fields["course"] else "MISSING",
+        "examination_year": "CONFIDENT" if fields["examination_year"] else "MISSING",
+        "total_marks": total_status,
+        "subject_marks": "CONFIDENT" if len(fields.get("subject_marks", [])) >= 3 else ("UNCERTAIN" if fields.get("subject_marks") else "MISSING")
+    }
 
     return fields
+
+def apply_name_region_reread(fields, image_bgr, raw_detections, ocr_reader=None, variant_funcs=None):
+    """If the whole-page name read is not CONFIDENT, re-reads the region next to the NAME label and,
+    only when the evidence rules in decide_name_override allow it, updates `fields` in place.
+    Returns the diagnostics dict (or None when skipped). Both the first-pass and the re-read
+    values stay available for diagnostics."""
+    if fields["field_status"].get("candidate_name") == "CONFIDENT" or os.environ.get("DEEPTRUST_NAME_REOCR", "1") == "0":
+        return None
+    try:
+        diag = reocr_name_region(image_bgr, raw_detections, ocr_reader or OCR_READER, variant_funcs or OCR_VARIANTS,
+                                 clean_name_string, is_valid_name_candidate, name_is_plausible)
+        first = {"name": fields["candidate_name"],
+                 "confidence": fields.get("candidate_name_confidence", 0.0),
+                 "plausible": name_is_plausible(fields["candidate_name"] or "")}
+        override = decide_name_override(first, diag, min_confident_conf=NAME_CONFIDENT_MIN_CONF)
+        if override:
+            fields["candidate_name_first_pass"] = {
+                "name": fields["candidate_name"],
+                "confidence": fields.get("candidate_name_confidence"),
+                "raw": fields.get("candidate_name_raw"),
+                "source": fields.get("candidate_name_source"),
+            }
+            fields["candidate_name"] = override["name"]
+            fields["candidate_name_confidence"] = override["confidence"]
+            fields["candidate_name_source"] = override["source"]
+            fields["field_status"]["candidate_name"] = override["status"]
+            fields.setdefault("field_confidence", {})["candidate_name"] = override["confidence"]
+        return diag
+    except Exception as e:
+        return {"attempted": False, "reason": f"ERROR: {type(e).__name__}: {e}"}
 
 
 def main():
@@ -121,20 +982,43 @@ def main():
         }))
         sys.exit(1)
 
-    image_path = sys.argv[1]
+    file_path = sys.argv[1]
 
-    if not os.path.exists(image_path):
+    if not os.path.exists(file_path):
         sys.stdout = real_stdout
         print(json.dumps({
             "success": False,
-            "error": f"Image file does not exist: {image_path}"
+            "error": f"Document file does not exist: {file_path}"
         }))
         sys.exit(1)
 
+    # 1. Ingest document (JPG, JPEG, PNG, PDF) with validation & adaptive normalization
+    from ingest import ingest_document
+    doc = ingest_document(file_path)
+    if not doc.get("success"):
+        sys.stdout = real_stdout
+        print(json.dumps({
+            "success": False,
+            "error": doc.get("error", "Failed to ingest document.")
+        }))
+        sys.exit(1)
+
+    page_count = doc.get("page_count", 1)
+    primary_page_bgr = doc["pages"][0]["image_bgr"]
+    format_type = doc.get("format", "UNKNOWN")
+
+    # 2. Extract OCR text
     try:
-        # Keep sys.stdout pointed to sys.stderr while running extract_text
-        # so any library messages (like CUDA/CPU info) go strictly to stderr.
-        raw_detections = extract_text(image_path)
+        ocr_detail = extract_text_detailed(primary_page_bgr)
+        raw_detections = ocr_detail["detections"]
+        # If multi-page PDF, also process subsequent pages if available (up to MAX_PDF_PAGES)
+        if page_count > 1:
+            for p_idx in range(1, min(len(doc["pages"]), 10)):
+                sub_page_bgr = doc["pages"][p_idx]["image_bgr"]
+                sub_detections = extract_text(sub_page_bgr)
+                for d in sub_detections:
+                    d["page"] = p_idx + 1
+                raw_detections.extend(sub_detections)
     except Exception as e:
         sys.stdout = real_stdout
         print(json.dumps({
@@ -143,34 +1027,96 @@ def main():
         }))
         sys.exit(1)
 
-    # Compute metrics
     total_boxes = len(raw_detections)
     if total_boxes > 0:
-        confidences = [d.get("confidence", 0.0) for d in raw_detections]
+        confidences = [d.get("mean_confidence", d.get("confidence", 0.0)) for d in raw_detections]
         avg_conf = sum(confidences) / total_boxes
     else:
         avg_conf = 0.0
 
-    # Parse key structured fields
     structured_fields = parse_extracted_fields(raw_detections)
+
+    # Targeted re-read of the name value region when the whole-page read is not CONFIDENT.
+    name_region_diag = apply_name_region_reread(structured_fields, primary_page_bgr, raw_detections)
+
+    try:
+        qr_analysis = analyze_certificate_qr(primary_page_bgr, ocr_fields=structured_fields)
+    except Exception as e:
+        qr_analysis = {
+            "detected": False,
+            "qr_count": 0,
+            "error": f"QR processing encountered an error: {str(e)}",
+            "consistency_check": {
+                "status": "ERROR",
+                "consistent": None,
+                "discrepancies": [],
+                "matches": [],
+                "note": "QR analysis failed."
+            }
+        }
+
+    try:
+        tamper_analysis = analyze_document_tampering(
+            primary_page_bgr,
+            raw_detections=raw_detections,
+            extracted_fields=structured_fields
+        )
+    except Exception as e:
+        tamper_analysis = {
+            "analysis_completed": False,
+            "error": f"Tamper analysis encountered an error: {str(e)}",
+            "indicators_detected": [],
+            "suspicious_regions": [],
+            "evidence_notes": [],
+            "limitations": ["Analysis encountered an error."],
+            "review_recommended": True,
+            "forensic_summary": "Tamper analysis error."
+        }
 
     response = {
         "success": True,
-        "image_path": image_path,
+        "image_path": file_path,
+        "document_metadata": {
+            "format": format_type,
+            "file_size": doc.get("file_size"),
+            "page_count": page_count,
+            "pdf_signature_markers": doc.get("pdf_signature_markers"),
+            "primary_page_analyzed": 1,
+            "multi_page_note": f"Document contains {page_count} pages. Primary certificate fields and visual forensics analyzed from page 1." if page_count > 1 else "Single-page document."
+        },
         "extracted_fields": structured_fields,
+        "qr_analysis": qr_analysis,
+        "tamper_analysis": tamper_analysis,
         "ocr_metrics": {
             "total_boxes_detected": total_boxes,
             "average_confidence": round(avg_conf, 2),
-            "average_confidence_percentage": f"{avg_conf * 100:.1f}%"
+            "average_confidence_percentage": f"{avg_conf * 100:.1f}%",
+            "readable_text_confidence": round(compute_readable_text_confidence(raw_detections), 3),
+            "zero_confidence_boxes": sum(1 for d in raw_detections if _conf(d) == 0.0),
+            "confidence_note": "OCR engine confidence only; not extraction accuracy and not evidence of authenticity.",
+            "variants_used": ocr_detail.get("variants_used"),
+            "variant_errors": ocr_detail.get("variant_errors") or {},
+            "languages_requested": OCR_LANGS_REQUESTED,
+            "languages_active": ACTIVE_LANGS,
+            "language_note": LANG_NOTE
+        },
+        "ocr_diagnostics": {
+            "per_variant": {
+                name: {
+                    "boxes": len(dets),
+                    "mean_confidence_all_boxes": round(sum(x.get("confidence", 0.0) for x in dets) / len(dets), 3) if dets else 0.0,
+                    "readable_text_confidence": round(compute_readable_text_confidence(dets), 3),
+                }
+                for name, dets in (ocr_detail.get("per_variant") or {}).items()
+            },
+            "name_region": name_region_diag,
         },
         "raw_detections": raw_detections
     }
 
-    # Restore real stdout right before emitting the JSON response
     sys.stdout = real_stdout
-    # Print strictly valid JSON to stdout
-    print(json.dumps(response))
 
+    print(json.dumps(response))
 
 if __name__ == "__main__":
     main()
