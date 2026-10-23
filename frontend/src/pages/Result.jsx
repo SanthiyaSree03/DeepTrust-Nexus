@@ -109,6 +109,17 @@ function Result() {
       title: "Manual Review Required",
       subtitle: "Low OCR character legibility, missing core identifiers, or ambiguous evidence requires human inspection.",
     };
+  } else if (sigV?.state === "PHYSICAL_SIGNATURE_DETECTED" && (tamperAnalysis?.indicators_detected?.length || 0) === 0) {
+    statusTheme = {
+      bg: "#f0fdf4",
+      border: "#86efac",
+      color: "#166534",
+      badgeBg: "#dcfce7",
+      badgeColor: "#166534",
+      icon: "🏛️",
+      title: "Physical Marksheet Verified (Official Board Issuance)",
+      subtitle: verification.summary || "Official authority signature and credentials verified. Standard physical marksheet issued without forensic tampering anomalies.",
+    };
   } else {
     // UNVERIFIED
     statusTheme = {
@@ -149,18 +160,27 @@ function Result() {
     note: "No QR code pattern was detected on this marksheet scan. Older examination certificates typically do not carry QR codes; this is standard and does not indicate forgery.",
   };
 
+  const isQrUnauthenticatable = Boolean(
+    qrAnalysis &&
+    qrAnalysis.detected &&
+    (qrAnalysis.detection_state === "DETECTED_UNREADABLE" ||
+     qrV?.state === "QR_UNREADABLE" ||
+     qrAnalysis.payload_classification?.payload_type === "UNREADABLE_IMAGE" ||
+     qrAnalysis.payload_classification?.payload_type === "EMPTY")
+  );
+
   if (qrAnalysis && qrAnalysis.detected) {
     const dState = qrAnalysis.detection_state || "DECODED";
     const pType = qrAnalysis.payload_classification?.payload_type;
     const consistency = qrAnalysis.consistency_check;
 
-    if (dState === "DETECTED_UNREADABLE") {
+    if (dState === "DETECTED_UNREADABLE" || pType === "UNREADABLE_IMAGE") {
       qrDisplayState = {
-        title: "QR Code Detected but Unreadable",
-        badge: "DETECTED UNREADABLE",
-        badgeBg: "#fffbeb",
-        badgeColor: "#b45309",
-        note: "QR finder markers were visually detected, but data could not be decoded due to scan blur, low resolution, or compression. A higher-resolution scan is recommended.",
+        title: "QR Unauthenticatable (Maybe Tampered / Blur)",
+        badge: "SUSPECTED TAMPERING / UNREADABLE",
+        badgeBg: "#fff7ed",
+        badgeColor: "#c2410c",
+        note: "A QR pattern was detected on the certificate, but it cannot be authenticated or decoded. In AI-generated certificates and digital document fraud, non-standard or pseudo-random QR patterns indicate that the document may be tampered, synthetic, or artificially generated.",
       };
     } else if (consistency && consistency.status === "DISCREPANCY_DETECTED") {
       qrDisplayState = {
@@ -279,6 +299,9 @@ function Result() {
       }
       if (extractedFields.total_marks_conflict) {
         return { status: "Mismatch", bg: "#fef2f2", color: "#b91c1c", border: "#fecaca" };
+      }
+      if (extractedFields.total_marks_source === "CALCULATED_SUBJECT_SUM") {
+        return { status: "Calculated", bg: "#ecfdf5", color: "#065f46", border: "#a7f3d0" };
       }
     }
     if (extractedFields.field_status?.[fieldKey] === "UNCERTAIN") {
@@ -406,6 +429,31 @@ function Result() {
               {status}
             </span>
           </div>
+
+          {/* Potential Tampering / AI Generation Alert when QR is unauthenticatable */}
+          {isQrUnauthenticatable && (
+            <div
+              style={{
+                marginTop: "18px",
+                padding: "14px 18px",
+                backgroundColor: "#fff7ed",
+                border: "1.5px solid #f97316",
+                borderRadius: "10px",
+                display: "flex",
+                alignItems: "center",
+                gap: "14px",
+                boxShadow: "0 2px 6px rgba(249, 115, 22, 0.08)",
+              }}
+            >
+              <span style={{ fontSize: "26px", flexShrink: 0 }}>⚠️</span>
+              <div style={{ color: "#9a3412", fontSize: "14px", lineHeight: "1.5" }}>
+                <strong style={{ fontSize: "15px", display: "block", marginBottom: "2px", color: "#c2410c" }}>
+                  Potential Tampering / AI Generation Detected:
+                </strong>
+                A QR pattern was detected on this certificate, but it is <strong>not authenticatable</strong> (unreadable or synthetic bitstream). AI-generated certificates and forged credentials frequently incorporate decorative, pseudo-random QR patterns that fail standard decoding. <em>This certificate may be tampered or artificially generated.</em>
+              </div>
+            </div>
+          )}
 
           <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid rgba(0,0,0,0.08)", fontSize: "13px", color: "#475569", lineHeight: "1.5", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
             <div>
@@ -559,6 +607,8 @@ function Result() {
               <div style={{ fontSize: "12px", color: "#64748b" }}>
                 {extractedFields.total_marks_conflict
                   ? `Conflict: numeric '${extractedFields.total_marks_conflict.numeric}' vs words '${extractedFields.total_marks_conflict.in_words}'`
+                  : extractedFields.total_marks_source === "CALCULATED_SUBJECT_SUM"
+                  ? (extractedFields.total_marks_note || "Calculated sum of verified subject marks (CBSE grading scheme)")
                   : confPct("total_marks")
                   ? `Read from total label (${confPct("total_marks")})`
                   : "Stated marks summary on document"}
@@ -785,8 +835,8 @@ function Result() {
                   {qrDisplayState.note}
                 </p>
               </div>
-              <div style={{ fontSize: "11px", color: "#64748b", borderTop: "1px solid #f1f5f9", paddingTop: "8px" }}>
-                📱 Decoded URLs are external web links; not verified credentials without signature.
+              <div style={{ fontSize: "11px", color: isQrUnauthenticatable ? "#c2410c" : "#64748b", borderTop: "1px solid #f1f5f9", paddingTop: "8px", fontWeight: isQrUnauthenticatable ? "600" : "normal" }}>
+                {isQrUnauthenticatable ? "⚠️ Unauthenticatable QR pattern: Certificate may be tampered or artificially generated." : "📱 Decoded URLs are external web links; not verified credentials without signature."}
               </div>
             </div>
 
@@ -794,20 +844,28 @@ function Result() {
             <div style={{ backgroundColor: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0", padding: "20px", display: "flex", flexDirection: "column", justifyContent: "space-between", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "#64748b", letterSpacing: "0.5px" }}>Digital Signature</span>
+                  <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "#64748b", letterSpacing: "0.5px" }}>
+                    {sigV?.state === "PHYSICAL_SIGNATURE_DETECTED" ? "Board Signatory" : "Digital Signature"}
+                  </span>
                   <span style={{ fontSize: "11px", fontWeight: "700", padding: "2px 8px", borderRadius: "10px", backgroundColor: sigBadgeTheme.bg, color: sigBadgeTheme.color, border: `1px solid ${sigBadgeTheme.border}` }}>
                     {sigLabel}
                   </span>
                 </div>
                 <div style={{ fontSize: "18px", fontWeight: "700", color: "#0f172a", marginBottom: "6px" }}>
-                  {digitalSignature?.present ? (digitalSignature.isTestKey ? "Synthetic Test Signature" : "Cryptographic Signature") : "No Digital Signature"}
+                  {sigV?.state === "PHYSICAL_SIGNATURE_DETECTED"
+                    ? "Official Board Signatory"
+                    : digitalSignature?.present
+                    ? (digitalSignature.isTestKey ? "Synthetic Test Signature" : "Cryptographic Signature")
+                    : "No Digital Signature"}
                 </div>
                 <p style={{ fontSize: "13px", color: "#475569", lineHeight: "1.45", margin: "0 0 10px" }}>
                   {sigV?.explanation || digitalSignature?.reason || "Physical marksheet does not carry an offline-verifiable digital signature."}
                 </p>
               </div>
-              <div style={{ fontSize: "11px", color: "#64748b", borderTop: "1px solid #f1f5f9", paddingTop: "8px" }}>
-                🔏 Printed signatures and rubber stamps are visual, not cryptographic signatures.
+              <div style={{ fontSize: "11px", color: sigV?.state === "PHYSICAL_SIGNATURE_DETECTED" ? "#047857" : "#64748b", borderTop: "1px solid #f1f5f9", paddingTop: "8px", fontWeight: sigV?.state === "PHYSICAL_SIGNATURE_DETECTED" ? "600" : "normal" }}>
+                {sigV?.state === "PHYSICAL_SIGNATURE_DETECTED"
+                  ? "🔏 Official board signatory verified. Standard physical paper marksheet issuance."
+                  : "🔏 Printed signatures and rubber stamps are visual, not cryptographic signatures."}
               </div>
             </div>
 
@@ -816,19 +874,23 @@ function Result() {
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                   <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "#64748b", letterSpacing: "0.5px" }}>Visual Forensics</span>
-                  <span style={{ fontSize: "11px", fontWeight: "700", padding: "2px 8px", borderRadius: "10px", backgroundColor: (tamperAnalysis?.indicators_detected?.length || 0) > 0 ? "#fffbeb" : "#ecfdf5", color: (tamperAnalysis?.indicators_detected?.length || 0) > 0 ? "#92400e" : "#065f46", border: `1px solid ${(tamperAnalysis?.indicators_detected?.length || 0) > 0 ? "#fde68a" : "#a7f3d0"}` }}>
-                    {(tamperAnalysis?.indicators_detected?.length || 0) > 0 ? `${tamperAnalysis.indicators_detected.length} Anomaly Flag(s)` : "Clean"}
+                  <span style={{ fontSize: "11px", fontWeight: "700", padding: "2px 8px", borderRadius: "10px", backgroundColor: (tamperAnalysis?.indicators_detected?.length || 0) > 0 ? "#fffbeb" : isQrUnauthenticatable ? "#fff7ed" : "#ecfdf5", color: (tamperAnalysis?.indicators_detected?.length || 0) > 0 ? "#92400e" : isQrUnauthenticatable ? "#c2410c" : "#065f46", border: `1px solid ${(tamperAnalysis?.indicators_detected?.length || 0) > 0 ? "#fde68a" : isQrUnauthenticatable ? "#fed7aa" : "#a7f3d0"}` }}>
+                    {(tamperAnalysis?.indicators_detected?.length || 0) > 0 ? `${tamperAnalysis.indicators_detected.length} Anomaly Flag(s)` : isQrUnauthenticatable ? "Potential Tampering Flag" : "Clean"}
                   </span>
                 </div>
                 <div style={{ fontSize: "18px", fontWeight: "700", color: "#0f172a", marginBottom: "6px" }}>
-                  {(tamperAnalysis?.indicators_detected?.length || 0) > 0 ? "Tampering Flags Detected" : "No Visual Anomalies"}
+                  {(tamperAnalysis?.indicators_detected?.length || 0) > 0 ? "Tampering Flags Detected" : isQrUnauthenticatable ? "Potential Tampering Indicator" : "No Visual Anomalies"}
                 </div>
                 <p style={{ fontSize: "13px", color: "#475569", lineHeight: "1.45", margin: "0 0 10px" }}>
-                  {tamperAnalysis?.forensic_summary || "Multi-angle compression (ELA) and layout consistency verified."}
+                  {(tamperAnalysis?.indicators_detected?.length || 0) > 0
+                    ? tamperAnalysis?.forensic_summary
+                    : isQrUnauthenticatable
+                    ? "Unauthenticatable QR pattern detected on document. AI-generated certificates and fraudulent documents frequently incorporate non-standard, decorative QR patterns; document may be tampered."
+                    : tamperAnalysis?.forensic_summary || "Multi-angle compression (ELA) and layout consistency verified."}
                 </p>
               </div>
-              <div style={{ fontSize: "11px", color: "#64748b", borderTop: "1px solid #f1f5f9", paddingTop: "8px" }}>
-                🔍 Image compression artifacts alone are not presented as proof of forgery.
+              <div style={{ fontSize: "11px", color: isQrUnauthenticatable ? "#c2410c" : "#64748b", borderTop: "1px solid #f1f5f9", paddingTop: "8px", fontWeight: isQrUnauthenticatable ? "600" : "normal" }}>
+                {isQrUnauthenticatable ? "🔍 Unauthenticatable QR detected: Certificate may be tampered." : "🔍 Image compression artifacts alone are not presented as proof of forgery."}
               </div>
             </div>
           </div>

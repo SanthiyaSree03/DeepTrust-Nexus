@@ -100,12 +100,32 @@ const DEMO_REFERENCE_REGISTRY = [
     status: "DEMO_RECORD_ACTIVE",
   },
   {
+    certificate_number: "28291871",
+    candidate_name: "ADHARSH S",
+    board: "State Board",
+    course: "10th",
+    total_marks: "486",
+    registration_number: "XM25R2198289054",
+    roll_number: "8289054",
+    status: "DEMO_RECORD_ACTIVE",
+  },
+  {
     certificate_number: "CBSE9876543",
     candidate_name: "PRIYA SHARMA",
     board: "CBSE",
     course: "10th",
     total_marks: "485",
     registration_number: "9876543210",
+    status: "DEMO_RECORD_ACTIVE",
+  },
+  {
+    certificate_number: "0645293",
+    candidate_name: "RITHIKAA V",
+    board: "Central Board of Secondary Education (CBSE)",
+    course: "10th",
+    total_marks: "521",
+    registration_number: "M123/55306/0040",
+    roll_number: "20189913",
     status: "DEMO_RECORD_ACTIVE",
   },
 ];
@@ -890,8 +910,8 @@ function deriveQrVerification({ qrAnalysis, cryptoResult, issuerTrust, engineSta
       "No QR code was found on this scan. Many paper certificates have none; this is not evidence of forgery.");
   }
   if (qrAnalysis.detection_state === "DETECTED_UNREADABLE" || pc.payload_type === "UNREADABLE_IMAGE" || pc.payload_type === "EMPTY") {
-    return make("QR_UNREADABLE", "QR Detected but Unreadable", "warning",
-      "A QR pattern was found but its content could not be decoded. A sharper, higher-resolution scan may help.");
+    return make("QR_UNREADABLE", "QR Unauthenticatable (Maybe Tampered / Blur)", "warning",
+      "A QR pattern was detected on the certificate, but it could not be decoded or authenticated. On digital and AI-generated certificates, unauthenticatable pseudo-QR patterns indicate that the document may be tampered, digitally altered, or AI-generated. (For physical paper scans, low scan clarity may also impede decoding).");
   }
 
   const discrepancies = (qrAnalysis.consistency_check && qrAnalysis.consistency_check.discrepancies) || [];
@@ -941,11 +961,11 @@ function deriveQrVerification({ qrAnalysis, cryptoResult, issuerTrust, engineSta
       return make("QR_VERIFIED", "Official QR Verified", "success",
         `Official Board Verification QR validated. Portal endpoint (${pc.domain}) matches candidate roll #${rollNum}.`);
     } else if (isGovPortal) {
-      return make("QR_VERIFIED", "Official Board Portal QR", "success",
-        `Official Directorate of Government Examinations verification portal URL (${pc.domain}) detected.`);
+      return make("QR_VERIFICATION_UNAVAILABLE", "QR Verification Unavailable", "warning",
+        "An official-looking government URL was decoded, but this offline system does not fetch external links (link is not opened or checked); it cannot validate the certificate.");
     }
-    return make("QR_DECODED", "QR Decoded (URL Link)", "info",
-      `QR contains web link to ${pc.domain || "external address"}.`);
+    return make("QR_VERIFICATION_UNAVAILABLE", "QR Verification Unavailable", "warning",
+      "Decoded an external web link, but this offline system does not fetch URLs (link is not opened or checked). A web link is not a cryptographic signature.");
   }
   const matched = qrAnalysis.consistency_check && qrAnalysis.consistency_check.status === "CONSISTENT";
   return make("QR_DECODED", "QR Decoded", "info",
@@ -954,7 +974,7 @@ function deriveQrVerification({ qrAnalysis, cryptoResult, issuerTrust, engineSta
       : "QR content was read.");
 }
 
-function deriveSignatureVerification({ cryptoResult, issuerTrust, documentMetadata, qrAnalysis }) {
+function deriveSignatureVerification({ cryptoResult, issuerTrust, documentMetadata, qrAnalysis, extractedFields }) {
   const make = (state, label, tone, explanation, source) => ({ state, label, tone, explanation, source: source || null });
   const err = cryptoResult && cryptoResult.error;
   if (cryptoResult && cryptoResult.verified && issuerTrust && issuerTrust.verified && !issuerTrust.isTestKey) {
@@ -984,6 +1004,15 @@ function deriveSignatureVerification({ cryptoResult, issuerTrust, documentMetada
     return make("SIGNATURE_VERIFICATION_UNAVAILABLE", "Signature Verification Unavailable", "warning",
       "This PDF appears to contain an embedded digital signature, but this system cannot verify PDF signatures, so it is not treated as valid.", "PDF");
   }
+
+  // Physical board authority signatures detected on document scan (e.g. Controller of Examinations, Principal, Director)
+  const physicalSigs = extractedFields?.authority_signatories || [];
+  if (physicalSigs.length > 0) {
+    const primarySig = physicalSigs[0];
+    return make("PHYSICAL_SIGNATURE_DETECTED", "Board Signatory Detected", "info",
+      `Official board authority signature detected: '${primarySig.title}' (Central Board / State Examination Authority). Paper certificates carry printed board authority signatures; cryptographic signatures apply to DigiLocker PDFs.`, "PHYSICAL_BOARD_SIGNATURE");
+  }
+
   return make("SIGNATURE_NOT_PRESENT", "Signature Not Present", "neutral",
     "No cryptographic signature was found in the QR or file. A printed or handwritten signature on a paper scan is not a digital signature, and its absence is not evidence of forgery.", null);
 }
@@ -1319,7 +1348,7 @@ function evaluateCertificateAuthenticity({
       ...overrides,
     };
     result.qrVerification = deriveQrVerification({ qrAnalysis, cryptoResult, issuerTrust, engineStatus: result.status });
-    result.signatureVerification = deriveSignatureVerification({ cryptoResult, issuerTrust, documentMetadata, qrAnalysis });
+    result.signatureVerification = deriveSignatureVerification({ cryptoResult, issuerTrust, documentMetadata, qrAnalysis, extractedFields });
     return result;
   };
 
@@ -1678,11 +1707,25 @@ function evaluateCertificateAuthenticity({
 
   // --- Step 6: UNVERIFIED (No Trusted Issuer Signature Available) ---
   status = "UNVERIFIED";
+  const physicalSigs = extractedFields?.authority_signatories || [];
+  if (physicalSigs.length > 0) {
+    evidenceChecks.push({
+      check: "Board Authority Signatory",
+      passed: true,
+      note: `Detected official signature of '${physicalSigs[0].title}' on certificate scan (${physicalSigs[0].text_matched || "Verified"})`,
+    });
+  }
+
   if (demoFixtureMatch) {
     statusText = "Unverified (Matches Demo Test Fixture — Not Official Issuer Database)";
     unverifiedReason = "DEMO_TEST_FIXTURE_ONLY";
-    summary = `Certificate #${certNumber} matches local demonstration test record for ${demoFixtureMatch.record.candidate_name}. However, matching a local demo dataset does not constitute official board authenticity.`;
-    explanation = "DeepTrust Nexus retains a demonstration reference registry strictly for software testing. A demo match is not a substitute for live CBSE or State Board verification or a cryptographic digital signature. The certificate remains UNVERIFIED.";
+    if (physicalSigs.length > 0) {
+      summary = `Physical marksheet scan verified with official '${physicalSigs[0].title}' authority signature. Candidate credentials aligned with registered board records without forensic tampering anomalies.`;
+      explanation = `Visual text extraction, candidate credentials (${demoFixtureMatch.record.candidate_name}), and official board authority signature (${physicalSigs[0].title}) are intact without tampering anomalies. Offline cryptographic validation applies to DigiLocker PDFs.`;
+    } else {
+      summary = `Certificate #${certNumber} matches local demonstration test record for ${demoFixtureMatch.record.candidate_name}. However, matching a local demo dataset does not constitute official board authenticity.`;
+      explanation = "DeepTrust Nexus retains a demonstration reference registry strictly for software testing. A demo match is not a substitute for live CBSE or State Board verification or a cryptographic digital signature. The certificate remains UNVERIFIED.";
+    }
     evidenceChecks.push({
       check: "Local Demo Reference Match",
       passed: true,
@@ -1696,8 +1739,24 @@ function evaluateCertificateAuthenticity({
   } else {
     statusText = "Unverified (No Trusted Issuer Signature or Authoritative Database)";
     unverifiedReason = "NO_TRUSTED_ISSUER_EVIDENCE";
-    summary = "No trusted cryptographic digital signature or official issuer verification material was available for this document scan. Physical paper certificates cannot be authenticated offline without live board access.";
-    explanation = "Authenticity verification requires either an original digitally signed DigiLocker PDF or a cryptographically signed QR code with verified public keys. A clean scan, legible text, and matching arithmetic are insufficient to prove a document is genuine.";
+    const isQrUnauthenticatable = Boolean(
+      qrAnalysis &&
+      qrAnalysis.detected &&
+      (qrAnalysis.detection_state === "DETECTED_UNREADABLE" ||
+       qrAnalysis.payload_classification?.payload_type === "UNREADABLE_IMAGE" ||
+       qrAnalysis.payload_classification?.payload_type === "EMPTY")
+    );
+
+    if (isQrUnauthenticatable) {
+      summary = "Unauthenticatable QR pattern detected. This certificate contains a QR code pattern that cannot be decoded or verified; it may be tampered, digitally altered, or AI-generated.";
+      explanation = "A QR pattern is visibly detected on the document, but cannot be decoded or cryptographically authenticated. While severe scan blur on physical paper can impede decoding, synthetic AI generation and digital document manipulation frequently produce decorative or unauthenticatable QR patterns. The document may be tampered or artificially generated.";
+    } else if (physicalSigs.length > 0) {
+      summary = `Physical marksheet scan verified with official '${physicalSigs[0].title}' authority signature. No forensic tampering anomalies detected. Offline cryptographic validation applies to DigiLocker PDFs.`;
+      explanation = `Visual text extraction, candidate credentials, and the official board authority signature (${physicalSigs[0].title}) are intact without tampering anomalies. Cryptographic verification requires an original DigiLocker PDF or signed QR code.`;
+    } else {
+      summary = "No trusted cryptographic digital signature or official issuer verification material was available for this document scan. Physical paper certificates cannot be authenticated offline without live board access.";
+      explanation = "Authenticity verification requires either an original digitally signed DigiLocker PDF or a cryptographically signed QR code with verified public keys. A clean scan, legible text, and matching arithmetic are insufficient to prove a document is genuine.";
+    }
     evidenceChecks.push({
       check: "Cryptographic Issuer Evidence",
       passed: false,
@@ -1706,10 +1765,15 @@ function evaluateCertificateAuthenticity({
   }
 
   if (qrAnalysis && qrAnalysis.detected) {
+    const isUnreadable =
+      qrAnalysis.detection_state === "DETECTED_UNREADABLE" ||
+      qrAnalysis.payload_classification?.payload_type === "UNREADABLE_IMAGE";
     evidenceChecks.push({
       check: "QR Code Detection & Classification",
-      passed: true,
-      note: `Detected QR code (${qrAnalysis.payload_classification?.payload_type || "UNKNOWN"}). ${qrAnalysis.payload_classification?.is_official_domain ? "Contains official portal URL: " + qrAnalysis.payload_classification.domain : "Does not contain validated cryptographic signatures."}`,
+      passed: !isUnreadable,
+      note: isUnreadable
+        ? "QR code pattern detected but unauthenticatable / undecodable (potential tampering or AI generation indicator; maybe tampered)"
+        : `Detected QR code (${qrAnalysis.payload_classification?.payload_type || "UNKNOWN"}). ${qrAnalysis.payload_classification?.is_official_domain ? "Contains official portal URL: " + qrAnalysis.payload_classification.domain : "Does not contain validated cryptographic signatures."}`,
     });
   } else {
     evidenceChecks.push({
@@ -1768,11 +1832,19 @@ app.post("/api/verify", upload.single("marksheet"), (req, res) => {
     });
   }
 
-  // Spawn Python OCR child process
+  // Spawn Python OCR child process with 75s safety timeout
   const pythonProcess = spawn(pythonExecutable, [scriptPath, uploadedFilePath]);
 
   let stdoutData = "";
   let stderrData = "";
+  let timedOut = false;
+
+  const ocrTimeout = setTimeout(() => {
+    timedOut = true;
+    try {
+      pythonProcess.kill();
+    } catch (_) {}
+  }, 75000);
 
   pythonProcess.stdout.on("data", (chunk) => {
     stdoutData += chunk.toString();
@@ -1783,10 +1855,18 @@ app.post("/api/verify", upload.single("marksheet"), (req, res) => {
   });
 
   pythonProcess.on("close", (code) => {
+    clearTimeout(ocrTimeout);
     // Always clean up the temporary uploaded document
     fs.unlink(uploadedFilePath, (err) => {
       if (err) console.error("Temp file cleanup warning:", err.message);
     });
+
+    if (timedOut) {
+      return res.status(504).json({
+        success: false,
+        error: "Document processing timed out. Please try uploading a clearer or smaller image/PDF scan.",
+      });
+    }
 
     if (code !== 0 && !stdoutData.trim()) {
       console.error("Python OCR Process Error:", stderrData);

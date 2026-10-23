@@ -68,16 +68,23 @@ def _gray(image):
 
 
 def _adaptive_factor(image, target_long=1800):
+    """Calculates scaling factor to bring image to target_long (1800px).
+    Prevents oversized camera photos (3000-8000px) from taking 10+ minutes on CPU."""
     h, w = image.shape[:2]
     long_side = max(h, w)
     if long_side < 1200:
-        return max(2.0, round(float(target_long) / float(long_side), 2))
-    return 2.0
+        return min(2.0, max(1.5, round(float(target_long) / float(long_side), 2)))
+    elif long_side > 2000:
+        return round(float(target_long) / float(long_side), 2)
+    return 1.0
 
 
-def _upscale(gray, factor=2):
+def _upscale(gray, factor=1.0):
+    if abs(factor - 1.0) < 0.05:
+        return gray
     h, w = gray.shape[:2]
-    return cv2.resize(gray, (int(round(w * factor)), int(round(h * factor))), interpolation=cv2.INTER_CUBIC)
+    interp = cv2.INTER_CUBIC if factor > 1.0 else cv2.INTER_AREA
+    return cv2.resize(gray, (int(round(w * factor)), int(round(h * factor))), interpolation=interp)
 
 
 def variant_original(image):

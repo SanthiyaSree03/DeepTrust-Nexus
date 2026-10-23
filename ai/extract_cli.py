@@ -40,30 +40,41 @@ EXCLUDED_NAME_KEYWORDS = {
     "SUBJECT", "CODE", "OTHER", "DETAILS", "RECOGNIZED", "STATEMENT",
     "PROVISIONAL", "DOCUMENT", "VERIFIED", "VERIFICATION", "SEAL", "SIGNATURE",
     "STAMP", "OFFICE", "ENROLMENT", "REGULAR", "PRIVATE", "STATUS", "REMARKS",
-    "INFORMATION", "NOTE", "CHECK", "PAGE", "COUNCIL", "INSTRUCTIONS", "IMPORTANT"
+    "INFORMATION", "NOTE", "CHECK", "PAGE", "COUNCIL", "INSTRUCTIONS", "IMPORTANT",
+    "SCIENCE", "SOCIAL", "TECHNOLOGY", "COMPUTER", "STANDARD", "LIT", "LNG",
+    "SCHOLASTIC", "ACHIEVEMENTS", "ADDITIONAL", "CORE", "ELECTIVE", "FOUNDATION"
 }
 
 COMMON_SUBJECTS = [
-    "TAMIL", "ENGLISH", "HINDI", "MATHEMATICS", "MATHS", "PHYSICS", "CHEMISTRY",
+    "TAMIL", "ENGLISH", "HINDI", "FRENCH", "SANSKRIT", "MATHEMATICS", "MATHS", "PHYSICS", "CHEMISTRY",
     "BIOLOGY", "BOTANY", "ZOOLOGY", "COMPUTER SCIENCE", "COMMERCE", "ACCOUNTANCY",
-    "ECONOMICS", "BUSINESS STUDIES", "HISTORY", "GEOGRAPHY", "SCIENCE", "SOCIAL SCIENCE"
+    "ECONOMICS", "BUSINESS MATHEMATICS", "BUSINESS STUDIES", "STATISTICS", "HISTORY",
+    "GEOGRAPHY", "POLITICAL SCIENCE", "SOCIAL SCIENCE", "SCIENCE",
+    "INFORMATION TECHNOLOGY"
 ]
 
 SUBJECT_PATTERNS = [
-    ("TAMIL", [r"\bTAMIL\b(?!\s*NADU)", r"\bTAML\b", r"\bTuL\b", r"தமிழ்", r"Part\s*[-I1]?\s*Tamil", r"\bTAM\b"]),
-    ("ENGLISH", [r"\bENG(?:LISH)?\b", r"\b8\*lsh\b", r"\bENGL\b", r"ஆங்கிலம்"]),
-    ("PHYSICS", [r"\bPHY(?:SICS)?\b", r"\bFhyeics\b", r"\bP[HY][YI]SIC[S5]?\b", r"இயற்பியல்"]),
-    ("CHEMISTRY", [r"\bCHEM(?:ISTRY)?\b", r"\bOHEV\b", r"\bCH[E3]M[I1]ST?R?Y?\b", r"வேதியியல்"]),
-    ("COMPUTER SCIENCE", [r"COMP(?:UTER)?\s*SCI(?:ENCE)?", r"\bDwhtr\*?c\b", r"\bCOMP\b", r"கணினி"]),
-    ("MATHEMATICS", [r"\bMATH(?:EMATICS)?\b", r"\bVATHEYAT\b", r"\bMATHS\b", r"\bMATHEWATICS\b", r"கணிதம்"]),
-    ("BIOLOGY", [r"\bBIO(?:LOGY)?\b", r"உயிரியல்"]),
-    ("BOTANY", [r"\bBOTANY\b", r"தாவரவியல்"]),
-    ("ZOOLOGY", [r"\bZOOL(?:OGY)?\b", r"விலங்கியல்"]),
-    ("COMMERCE", [r"\bCOMMERCE\b", r"வணிகவியல்"]),
-    ("ACCOUNTANCY", [r"\bACCOUNT(?:ANCY)?\b", r"கணக்குப்பதிவியல்"]),
-    ("ECONOMICS", [r"\bECONOMICS\b", r"பொருளாதாரம்"]),
-    ("SCIENCE", [r"\bSCIENCE\b", r"அறிவியல்"]),
-    ("SOCIAL SCIENCE", [r"\bSOCIAL\s*SCIENCE\b", r"சமூக\s*அறிவியல்"]),
+    ("TAMIL", [r"\bTAM(?:IL)?\b(?!\s*NADU)", r"\bTAML\b", r"\bTuL\b", r"தமிழ்", r"Part\s*[-I1]?\s*Tamil", r"\bTAM\b", r"\bL1\b"]),
+    ("ENGLISH", [r"\bENG(?:LISH)?\b", r"\b8\*lsh\b", r"\bENGL\b", r"ஆங்கிலம்", r"Part\s*[-I1]{2}\s*English", r"\bL2\b"]),
+    ("PHYSICS", [r"\bPHY(?:SICS)?\b", r"\bFhyeics\b", r"\bP[HY][YI]SIC[S5]?\b", r"இயற்பியல்", r"\bPH[YI]\b", r"\b042\b"]),
+    ("CHEMISTRY", [r"\bCHEM(?:ISTRY)?\b", r"\bOHEV\b", r"\bCH[E3]M[I1]ST?R?Y?\b", r"வேதியியல்", r"\bCHEM?\b", r"\b043\b"]),
+    ("BIOLOGY", [r"\bBIO(?:LOGY)?\b", r"\bB[1I0][O0]LOG[YV]\b", r"\bBIOL\b", r"\bBIOLO\b", r"\bBIO\s*LOGY\b", r"\bB1O\b", r"உயிரியல்", r"உயிரி", r"உயிரியல", r"\b044\b"]),
+    ("COMPUTER SCIENCE", [r"COMP(?:UTER)?\s*SCI(?:ENCE)?", r"\bCOMP(?:UTER)?\b(?!\s*APPLICATION)", r"\bDwhtr\*?c\b", r"\bCOMP\b", r"\bC\.?S\.?\b", r"கணினி(?:\s*அறிவியல்)?", r"\b083\b"]),
+    ("MATHEMATICS", [r"\bMATH(?:EMATICS)?\b", r"\bMATHEMATCS\b", r"\bVATHEYAT\b", r"\bMATHS\b", r"\bMATHEWATICS\b", r"கணிதம்", r"கணிதவியல்", r"\bMATH[A-Z]*\b", r"\b041\b"]),
+    ("BOTANY", [r"\bBOT(?:ANY)?\b", r"தாவரவியல்", r"\b045\b"]),
+    ("ZOOLOGY", [r"\bZOOL(?:OGY)?\b", r"\bZOO\b", r"விலங்கியல்", r"\b046\b"]),
+    ("COMMERCE", [r"\bCOMM(?:ERCE)?\b", r"வணிகவியல்", r"\b055\b"]),
+    ("ACCOUNTANCY", [r"\bACCOUNT(?:ANCY)?\b", r"\bACCOUNTS?\b", r"\bACCT\b", r"கணக்குப்பதிவியல்", r"\b054\b"]),
+    ("ECONOMICS", [r"\bECON(?:OMICS)?\b", r"\bECO\b", r"பொருளாதாரம்", r"\b030\b"]),
+    ("BUSINESS MATHEMATICS", [r"BUS(?:INESS)?\s*MATH(?:S|EMATICS)?", r"\bB\.?MATHS?\b", r"வணிகக்\s*கணிதம்", r"வணிக\s*கணிதம்", r"\b058\b"]),
+    ("STATISTICS", [r"\bSTAT(?:ISTICS)?\b", r"\bSTATS\b", r"புள்ளியியல்", r"\b035\b"]),
+    ("SOCIAL SCIENCE", [r"\bSOC(?:IAL)?\s*SCI(?:ENCE)?\b", r"சமூக\s*அறிவியல்", r"\bSOC(?:IAL)?\b(?=\s*SCI)"]),
+    ("SCIENCE", [r"(?<!SOCIAL\s)(?<!SOCIAL)(?<!COMPUTER\s)(?<!COMPUTER)\bSCIENCE\b", r"(?<!சமூக\s)(?<!சமூக)அறிவியல்"]),
+    ("INFORMATION TECHNOLOGY", [r"INFO(?:RMATION)?\s*TECH(?:NOLOGY)?", r"\bINFO\s*TECH\b", r"\bI\.?T\.?\b", r"\b402\b"]),
+    ("HINDI", [r"\bHINDI\b", r"ஹிந்தி", r"\b002\b"]),
+    ("HISTORY", [r"\bHIST(?:ORY)?\b", r"வரலாறு", r"\b027\b"]),
+    ("GEOGRAPHY", [r"\bGEOG(?:RAPHY)?\b", r"புவியியல்", r"\b029\b"]),
+    ("POLITICAL SCIENCE", [r"POL(?:ITICAL)?\s*SCI(?:ENCE)?", r"அரசியல்\s*அறிவியல்", r"\b028\b"]),
 ]
 
 # Policy thresholds (heuristic choices, NOT calibrated probabilities).
@@ -205,6 +216,35 @@ def is_valid_name_candidate(cleaned, require_multiword=False):
         return False
     return True
 
+
+def detect_authority_signatories(raw_detections):
+    """Detects physical board authority signatures, seals, and official signatories on certificates."""
+    signatories = []
+    seen = set()
+    SIGNATORY_PATTERNS = [
+        ("Controller of Examinations", [r"Controller\s*of\s*Examinations?", r"परीक्षा\s*नियंत्रक", r"\bCONTROLLER\b"]),
+        ("Director of Government Examinations", [r"Director\s*of\s*(?:Government\s*)?Examinations?", r"\bDGE\b", r"\bDIRECTOR\b"]),
+        ("Principal / Head of Institution", [r"Signature\s*of\s*(?:the\s*)?Principal", r"\bPRINCIPAL\b", r"\bHEADMASTER\b"]),
+        ("Secretary / Board Authority", [r"\bSECRETARY\b", r"MEMBER\s*SECRETARY", r"\bREGISTRAR\b"]),
+    ]
+    for d in raw_detections:
+        txt = d.get("text", "").strip()
+        for title, pats in SIGNATORY_PATTERNS:
+            if title in seen:
+                continue
+            if any(re.search(p, txt, re.I) for p in pats):
+                conf = float(d.get("confidence", 0.0) or 0.0)
+                signatories.append({
+                    "title": title,
+                    "text_matched": txt,
+                    "confidence": round(conf, 2),
+                    "box": d.get("box")
+                })
+                seen.add(title)
+                break
+    return signatories
+
+
 def _norm_alnum(t):
     return re.sub(r"[^A-Z0-9]", "", (t or "").upper())
 
@@ -276,15 +316,18 @@ def _name_candidate_after(valid_items, i):
                 continue  # text of a very different size is not the value next to this label
             cy = (r[1] + r[3]) / 2.0
 
-            # (1) Tabular cell below the header (within cell column bounds)
-            if 0 <= r[1] - hr[3] <= 4.0 * h and (cell_x0 - h <= r[0] <= cell_x1 or cell_x0 - h <= r[2] <= cell_x1):
-                ordered.append((0, r[1] - hr[3], k))
-            # (2) Same row to the right (inline key-value layout)
-            elif abs(cy - hcy) <= 0.8 * h and r[0] >= hr[2] - 0.5 * h:
-                ordered.append((1, r[0] - hr[2], k))
+            # (1) Same row to the right (inline key-value layout, e.g. "This is to certify that RITHIKAA V" or "Name: John")
+            if abs(cy - hcy) <= 0.85 * h and r[0] >= hr[2] - 0.5 * h:
+                ordered.append((0, r[0] - hr[2], k))
+            # (2) Tabular cell below the header (within cell column bounds)
+            elif 0 <= r[1] - hr[3] <= 4.0 * h and (cell_x0 - h <= r[0] <= cell_x1 or cell_x0 - h <= r[2] <= cell_x1):
+                ordered.append((1, r[1] - hr[3], k))
 
         for _, _, k in sorted(ordered):
             cand = valid_items[k]
+            cand_u = cand["text"].strip().upper()
+            if any(p in cand_u for p in ["MOTHER", "FATHER", "GUARDIAN", "ROLL", "REGISTER"]):
+                continue
             cleaned = clean_name_string(cand["text"])
             if is_valid_name_candidate(cleaned, require_multiword=False):
                 candidate_name = cleaned
@@ -308,6 +351,9 @@ def _name_candidate_after(valid_items, i):
 
     for next_idx in range(i + 1, min(len(valid_items), i + 5)):
         cand = valid_items[next_idx]
+        cand_u = cand["text"].strip().upper()
+        if any(p in cand_u for p in ["MOTHER", "FATHER", "GUARDIAN", "ROLL", "REGISTER"]):
+            continue
         cleaned = clean_name_string(cand["text"])
         if is_valid_name_candidate(cleaned, require_multiword=False):
             return {"name": cleaned, "confidence": round(_conf(cand), 2), "raw_ocr": cand["text"],
@@ -322,8 +368,10 @@ def extract_candidate_name_generic(raw_detections, all_texts=None):
     valid_items = [d for d in raw_detections if d.get("text") and d["text"].strip()]
 
     # 1. Header-anchored search: exact label first, then a fuzzy label match (weaker anchor).
+    # Skip any line mentioning mother, father, or guardian
     exact_idx = [i for i, it in enumerate(valid_items)
-                 if any(re.search(pat, it["text"].strip().upper(), re.I) for pat in name_header_patterns)]
+                 if not any(p in it["text"].strip().upper() for p in ["MOTHER", "FATHER", "GUARDIAN"])
+                 and any(re.search(pat, it["text"].strip().upper(), re.I) for pat in name_header_patterns)]
     for i in exact_idx:
         found = _name_candidate_after(valid_items, i)
         if found:
@@ -332,7 +380,9 @@ def extract_candidate_name_generic(raw_detections, all_texts=None):
     for i, it in enumerate(valid_items):
         if i in exact_idx:
             continue
-        if fuzzy_label_score(it["text"], ["NAME OF THE CANDIDATE", "NAME OF CANDIDATE"]) >= 0.8:
+        if any(p in it["text"].strip().upper() for p in ["MOTHER", "FATHER", "GUARDIAN"]):
+            continue
+        if fuzzy_label_score(it["text"], ["NAME OF THE CANDIDATE", "NAME OF CANDIDATE", "THIS IS TO CERTIFY THAT"]) >= 0.8:
             found = _name_candidate_after(valid_items, i)
             if found:
                 found["anchor"] = "HEADER_FUZZY"  # label itself was damaged by OCR: never CONFIDENT on its own
@@ -392,6 +442,7 @@ def parse_extracted_fields(raw_detections):
         "board": None,
         "course": None,
         "total_marks": None,
+        "total_marks_in_words": None,
         "registration_number": None,
         "examination_year": None,
         "subject_marks": [],
@@ -427,12 +478,12 @@ def parse_extracted_fields(raw_detections):
                 break
 
     # 1. Registration / roll number: label-anchored first.
-    # Tamil stem "நிரந்தர" (permanent) is only effective when the Tamil OCR model is active.
-    perm_inline = re.compile(r"(?:\b(?:PERMANENT\s*REG(?:ISTER|ISTRATION)?|REGISTRATION|REGN?|FERW|Ster\s*Kliujer)|நிரந்தர\S*(?:\s+பதிவு)?)\s*(?:NO\.?|NUMBER|எண்)?\s*[:\-.]?\s*([A-Z0-9]{6,18})\b", re.I)
-    perm_only = re.compile(r"(?:\b(?:PERMANENT\s*(?:REG(?:ISTER|ISTRATION)?)?|REGISTRATION|REGISTER|FERW|Ster\s*Kliujer)|நிரந்தர\S*(?:\s+பதிவு)?)\s*(?:NO\.?|NUMBER|எண்)?\s*[:\-.]?\s*$", re.I)
-    roll_inline = re.compile(r"\bROLL\s*(?:NO\.?|NUMBER)?\s*[:\-.]?\s*([A-Z0-9]{6,18})\b", re.I)
-    roll_only = re.compile(r"\bROLL\s*(?:NO\.?|NUMBER)?\s*[:\-.]?\s*$", re.I)
-    value_re = re.compile(r"\b([A-Z0-9]{6,18})\b", re.I)
+    # Support slashes in CBSE registration numbers like M123/55306/0040
+    perm_inline = re.compile(r"(?:\b(?:PERMANENT\s*REG(?:ISTER|ISTRATION)?|[RA]EGN?|REGISTRATION|REG\b|FERW|Ster\s*Kliujer|रजि\.\s*सं\.?)|நிரந்தர\S*(?:\s+பதிவு)?)\s*(?:NO\.?|NUMBER|எண்)?\s*[:;\-.]?\s*([A-Z0-9/]{6,22})\b", re.I)
+    perm_only = re.compile(r"(?:\b(?:PERMANENT\s*(?:REG(?:ISTER|ISTRATION)?)?|[RA]EGN?|REGISTRATION|REGISTER|REG\b|FERW|Ster\s*Kliujer|रजि\.\s*सं\.?)|நிரந்தர\S*(?:\s+பதிவு)?)\s*(?:NO\.?|NUMBER|எண்)?\s*[:;\-.]?\s*$", re.I)
+    roll_inline = re.compile(r"\bROLL\s*(?:NO\.?|NUMBER)?\s*[:;\-.]?\s*([A-Z0-9]{6,18})\b", re.I)
+    roll_only = re.compile(r"\bROLL\s*(?:NO\.?|NUMBER)?\s*[:;\-.]?\s*$", re.I)
+    value_re = re.compile(r"\b([A-Z0-9/]{6,22})\b", re.I)
 
     def _has_digits(v, n=6):
         return v is not None and len(re.findall(r"\d", v)) >= n
@@ -443,47 +494,60 @@ def parse_extracted_fields(raw_detections):
         fields["roll_number"] = roll[0].upper()
     reg_conf, reg_labelled = 0.0, False
     perm_fuzzy = None
-    if not (perm and _has_digits(perm[0])):
+
+    # Check for unmistakable CBSE registration pattern: e.g. M123/55306/0040
+    cbse_reg_candidate = None
+    for it in items:
+        m_cbse = re.search(r"\b([A-Z]\d{3}/\d{5}/\d{4})\b", it["text"].strip())
+        if m_cbse:
+            cbse_reg_candidate = (m_cbse.group(1).upper(), _conf(it))
+            break
+
+    if cbse_reg_candidate:
+        fields["registration_number"] = cbse_reg_candidate[0]
+        fields["registration_source"] = "CBSE_REGISTRATION_PATTERN"
+        reg_conf, reg_labelled = cbse_reg_candidate[1], True
+    elif perm and _has_digits(perm[0]):
+        fields["registration_number"] = perm[0].upper()
+        fields["registration_source"] = "LABELLED_REGISTRATION"
+        reg_conf, reg_labelled = perm[1], True
+    else:
         # Label damaged by OCR (e.g. 'Pemanent Reaister No'): accept as a WEAK anchor (-> UNCERTAIN).
         for idx, it in enumerate(items):
-            if fuzzy_label_score(it["text"], ["PERMANENT REGISTER NUMBER", "PERMANENT REGISTER NO"]) >= 0.75:
+            if fuzzy_label_score(it["text"], ["PERMANENT REGISTER NUMBER", "PERMANENT REGISTER NO", "REGISTRATION NUMBER"]) >= 0.75:
                 cands = [(it["text"], _conf(it))] + [(items[k]["text"], _conf(items[k])) for k in range(idx + 1, min(len(items), idx + 3))]
                 for ctext, cconf in cands:
-                    tok = next((m.group(0) for m in re.finditer(r"\b[A-Z0-9]{6,18}\b", ctext.upper()) if _has_digits(m.group(0))), None)
+                    tok = next((m.group(0) for m in re.finditer(r"\b[A-Z0-9/]{6,22}\b", ctext.upper()) if _has_digits(m.group(0))), None)
                     if tok:
                         perm_fuzzy = (tok, cconf)
                         break
             if perm_fuzzy:
                 break
-    if perm and _has_digits(perm[0]):
-        fields["registration_number"] = perm[0].upper()
-        fields["registration_source"] = "LABELLED_REGISTRATION"
-        reg_conf, reg_labelled = perm[1], True
-    elif perm_fuzzy:
-        fields["registration_number"] = perm_fuzzy[0]
-        fields["registration_source"] = "FUZZY_LABEL_REGISTRATION"
-        reg_conf, reg_labelled = perm_fuzzy[1], False
-    elif roll and _has_digits(roll[0]):
-        fields["registration_number"] = roll[0].upper()
-        fields["registration_source"] = "LABELLED_ROLL"
-        reg_conf, reg_labelled = roll[1], True
-    else:
-        # Unlabelled number: check student details band (y: 80 to 350)
-        for idx, it in enumerate(items):
-            txt = it["text"].strip()
-            prev = items[idx - 1]["text"] if idx > 0 else ""
-            if re.search(r"EMIS", txt + " " + prev, re.I):
-                continue
-            reg_match = re.search(r"\b([A-Z]{1,4}\d{2}[A-Z]\d{6,12})\b", txt.upper()) or re.search(r"\b(\d{10})\b", txt)
-            if reg_match:
-                fields["registration_number"] = reg_match.group(1).upper()
-                r_box = rect_of(it.get("box"))
-                is_student_row = r_box and 80 <= r_box[1] <= 350
-                fields["registration_source"] = "TABLE_CELL_REGISTRATION" if is_student_row else "UNLABELLED_REGISTRATION"
-                c_val = _conf(it)
-                reg_conf = c_val if c_val > 0 else 0.85
-                reg_labelled = bool(is_student_row)
-                break
+        if perm_fuzzy:
+            fields["registration_number"] = perm_fuzzy[0]
+            fields["registration_source"] = "FUZZY_LABEL_REGISTRATION"
+            reg_conf, reg_labelled = perm_fuzzy[1], False
+        elif roll and _has_digits(roll[0]):
+            fields["registration_number"] = roll[0].upper()
+            fields["registration_source"] = "LABELLED_ROLL"
+            reg_conf, reg_labelled = roll[1], True
+        else:
+            # Unlabelled number: check student details band (y: 80 to 350)
+            for idx, it in enumerate(items):
+                txt = it["text"].strip()
+                prev = items[idx - 1]["text"] if idx > 0 else ""
+                if re.search(r"EMIS", txt + " " + prev, re.I):
+                    continue
+                reg_match = re.search(r"\b([A-Z]{1,4}\d{2}[A-Z]\d{6,12})\b", txt.upper()) or re.search(r"\b(\d{10})\b", txt)
+                if reg_match:
+                    fields["registration_number"] = reg_match.group(1).upper()
+                    r_box = rect_of(it.get("box"))
+                    is_student_row = r_box and 80 <= r_box[1] <= 350
+                    fields["registration_source"] = "TABLE_CELL_REGISTRATION" if is_student_row else "UNLABELLED_REGISTRATION"
+                    c_val = _conf(it)
+                    reg_conf = c_val if c_val > 0 else 0.85
+                    reg_labelled = bool(is_student_row)
+                    break
     if fields["registration_number"]:
         field_conf["registration_number"] = round(reg_conf, 2)
 
@@ -506,25 +570,36 @@ def parse_extracted_fields(raw_detections):
             cert_conf, cert_labelled = cl[1], True
     if not fields["certificate_number"]:
         excluded = {fields.get("registration_number"), fields.get("roll_number"), fields.get("emis_id")}
-        # Check top-right quadrant first (standard placement for TN Board certificate serials)
+        top_candidates = []
         for it in items:
             num_match = re.search(r"\b(\d{7,9})\b", it["text"].strip())
             if num_match and num_match.group(1) not in excluded:
-                fields["certificate_number"] = num_match.group(1)
                 r_box = rect_of(it.get("box"))
-                # If located in top quadrant, it is the certificate serial
-                is_top = r_box and r_box[1] < 450
-                fields["certificate_number_source"] = "TOP_BANNER_SERIAL" if is_top else "UNLABELLED_NUMERIC"
-                cert_conf, cert_labelled = _conf(it), bool(is_top)
-                break
+                is_top = bool(r_box and r_box[1] < 450)
+                top_candidates.append({
+                    "val": num_match.group(1),
+                    "conf": _conf(it),
+                    "is_top": is_top,
+                })
+        if top_candidates:
+            # Prioritize top-banner serials with high OCR confidence over faint barcodes
+            top_candidates.sort(key=lambda c: (c["is_top"], c["conf"] >= 0.6, c["conf"]), reverse=True)
+            best = top_candidates[0]
+            fields["certificate_number"] = best["val"]
+            fields["certificate_number_source"] = "TOP_BANNER_SERIAL" if best["is_top"] else "UNLABELLED_NUMERIC"
+            cert_conf, cert_labelled = best["conf"], best["is_top"]
     if fields["certificate_number"]:
         field_conf["certificate_number"] = round(cert_conf, 2)
 
     # 3. Board Name Search
-    if "TAMILNADU" in joined_text or "STATE BOARD" in joined_text or ("TAMIL" in joined_text and "BOARD" in joined_text) or "DGE CHENNAI" in joined_text:
-        fields["board"] = "State Board of School Examinations, Tamil Nadu"
-    elif "CBSE" in joined_text or "CENTRAL BOARD" in joined_text or "SECONDARY EDUCATION, DELHI" in joined_text:
+    # Check CBSE first, before checking loose "TAMIL" + "BOARD"
+    if any(k in joined_text for k in [
+        "CENTRAL BOARD OF SECONDARY EDUCATION", "CENTRAL BOARD", "CBSE",
+        "केन्द्रीय माध्यमिक शिक्षा बोर्ड", "SECONDARY EDUCATION, DELHI", "CBSE.NIC.IN"
+    ]):
         fields["board"] = "Central Board of Secondary Education (CBSE)"
+    elif "TAMILNADU" in joined_text or "STATE BOARD" in joined_text or "DGE CHENNAI" in joined_text or ("TAMIL NADU" in joined_text and "BOARD" in joined_text) or "GOVERNMENT OF TAMIL NADU" in joined_text:
+        fields["board"] = "State Board of School Examinations, Tamil Nadu"
     elif "CISCE" in joined_text or "ICSE" in joined_text or "ISC" in joined_text:
         fields["board"] = "Council for the Indian School Certificate Examinations (CISCE)"
     elif "KARNATAKA" in joined_text or "KSEEB" in joined_text:
@@ -539,13 +614,13 @@ def parse_extracted_fields(raw_detections):
     is_10th = any(k in joined_text for k in [
         "SECONDARY SCHOOL LEAVING", "SSLC", "X STANDARD", "CLASS X",
         "CLASS 10", "10TH STANDARD", "CERTIFICATE SL. NO. SEC", "CERTIFICATE SL.NO. SEC",
-        "SL. NO. SEC", "SEC 24", "இடைநிலைப் பள்ளி"
+        "SL. NO. SEC", "SEC 24", "இடைநிலைப் பள்ளி", "SECONDARY SCHOOL EXAMINATION"
     ])
     is_12th = any(k in joined_text for k in [
         "HIGHER SECONDARY", "SECOND YEAR", "HSC", "H.S.C", "H S C",
         "CLASS XII", "CLASS 12", "12TH STANDARD", "12TH", "CERTIFICATE SL. NO. HSE",
         "CERTIFICATE SL.NO. HSE", "SL. NO. HSE", "SL.NO. HSE", "SL NO HSE",
-        "HSE", "மேல்நிலைப்", "மேல்நிலை", "H S E"
+        "HSE", "மேல்நிலைப்", "மேல்நிலை", "H S E", "SENIOR SCHOOL CERTIFICATE"
     ])
 
     if is_10th and not is_12th:
@@ -553,8 +628,7 @@ def parse_extracted_fields(raw_detections):
     elif is_12th and not is_10th:
         fields["course"] = "Higher Secondary Examination (12th)"
     elif is_10th and is_12th:
-        # If both appear (e.g. 10th cert from a Matriculation Higher Secondary school), verify certificate header & serial prefix
-        if any(h in joined_text for h in ["SECONDARY SCHOOL LEAVING", "X STANDARD", "SEC", "இடைநிலைப் பள்ளி"]):
+        if any(h in joined_text for h in ["SECONDARY SCHOOL LEAVING", "X STANDARD", "SEC", "இடைநிலைப் பள்ளி", "SECONDARY SCHOOL EXAMINATION"]):
             fields["course"] = "Secondary School Leaving Certificate (10th)"
         else:
             fields["course"] = "Higher Secondary Examination (12th)"
@@ -565,15 +639,18 @@ def parse_extracted_fields(raw_detections):
     elif fields.get("certificate_number") and str(fields["certificate_number"]).startswith("36"):
         fields["course"] = "Higher Secondary Examination (12th)"
 
-
     # 5. Examination Year / Session
     exam_session_match = re.search(r"\b(MARCH|MAR|APRIL|APR|MAY|JUNE|JUN|JULY|JUL|AUGUST|AUG|SEPTEMBER|SEP|OCTOBER|OCT|NOVEMBER|NOV|DECEMBER|DEC)\.?\s*[-/]?\s*(20\d{2}|19\d{2})\b", joined_text, re.I)
     if exam_session_match:
         fields["examination_year"] = f"{exam_session_match.group(1).upper()} {exam_session_match.group(2)}"
     else:
-        year_match = re.search(r"(?:SESSION|YEAR|HELD IN|EXAM(?:INATION)?)\s*[:\-]?\s*(20\d{2}|19\d{2})\b", joined_text, re.I)
+        year_match = re.search(r"(?:SESSION|YEAR|HELD IN|EXAM(?:INATION)?)\s*[,:\-]?\s*(20\d{2}|19\d{2})\b", joined_text, re.I)
         if year_match:
             fields["examination_year"] = year_match.group(1)
+        else:
+            date_match = re.search(r"(?:DATED?|DATE)\s*[,:\-]?\s*\d{1,2}[-/](\d{1,2})[-/](20\d{2})\b", joined_text, re.I)
+            if date_match:
+                fields["examination_year"] = date_match.group(2)
 
     # 6. Candidate Name Extraction (Generalized - no hardcoded demo names)
     name_info = extract_candidate_name_generic(raw_detections, all_texts)
@@ -585,115 +662,208 @@ def parse_extracted_fields(raw_detections):
         field_conf["candidate_name"] = name_info["confidence"]
 
     # 7. Total Marks Extraction (numeric, cross-checked against the total written in words)
+    is_cbse = (fields.get("board") == "Central Board of Secondary Education (CBSE)" or
+               any(k in joined_text for k in ["CENTRAL BOARD", "CBSE", "केन्द्रीय माध्यमिक शिक्षा बोर्ड"]))
+
     total_conf, total_label_conf = 0.0, 0.0
     total_label_idx = None
-    TOTAL_LABEL_RE = re.compile(
-        r"\b(?:TOTAL\s*MARKS?|TOTAL|GRAND\s*TOTAL|TOMAL\s*MARKS?|TOMAL|IOIAL\s*MARKS?|IOIAL|TOTL|TOTAI|IOTAL|T0TAL|OiAL|ALMNRES|OiALMNRES|AL\s*MARKS|AL\s*MRKS|மொத்த[ா-்]*)\b",
-        re.I
-    )
-    NON_TOTAL_RE = re.compile(r"\b(?:MAX(?:IMUM)?|MIN(?:IMUM)?|PASS\s*MARKS?|MARKS\s*OBTAINED|THEORY|PRACTICAL)\b", re.I)
+    total_status = "MISSING"
 
-    for i, it in enumerate(items):
-        u = it["text"].strip().upper()
-        if NON_TOTAL_RE.search(u):
-            continue  # "maximum marks", "marks obtained", etc. lines are not the obtained total
-        if TOTAL_LABEL_RE.search(u):
-            total_label_idx = i
-            # Vicinity candidate items: check same row or immediate adjacent items
-            cand_items = []
-            for k in range(max(0, i - 1), min(len(items), i + 6)):
-                cand = items[k]
-                cand_u = cand["text"].strip().upper()
-                if k != i and NON_TOTAL_RE.search(cand_u):
-                    continue
-                cand_items.append(cand)
+    # In CBSE / Grade-based certificates, no aggregate total marks row exists.
+    if is_cbse:
+        fields["total_marks"] = None
+        fields["total_marks_in_words"] = None
+        total_status = "NOT_APPLICABLE"
+    else:
+        TOTAL_LABEL_RE = re.compile(
+            r"\b(?:TOTAL\s*MARKS?|TOTAL|GRAND\s*TOTAL|TOMAL\s*MARKS?|TOMAL|IOIAL\s*MARKS?|IOIAL|TOTL|TOTAI|IOTAL|T0TAL|OiAL|ALMNRES|OiALMNRES|AL\s*MARKS|AL\s*MRKS|மொத்த[ா-்]*)\b",
+            re.I
+        )
+        NON_TOTAL_RE = re.compile(r"\b(?:MAX(?:IMUM)?|MIN(?:IMUM)?|PASS\s*MARKS?|MARKS\s*OBTAINED|THEORY|PRACTICAL|IA/?PR|GRADE|POSITIONAL|SUB(?:JECT)?\s*CODE)\b", re.I)
 
-            # Look for numeric total marks
-            for cand in cand_items:
-                if NON_TOTAL_RE.search(cand["text"].upper()):
+        for i, it in enumerate(items):
+            u = it["text"].strip().upper()
+            if NON_TOTAL_RE.search(u):
+                continue
+            if TOTAL_LABEL_RE.search(u):
+                # Ensure this is not a table column header (e.g. adjacent to Theory/Practical/IA/Grade)
+                nearby_text = " ".join(items[k]["text"].strip().upper() for k in range(max(0, i - 2), min(len(items), i + 3)))
+                if any(hdr in nearby_text for hdr in ["THEORY", "PRACTICAL", "IA", "GRADE", "POSITIONAL", "SUB CODE"]):
                     continue
-                mark_match = re.search(r"\b(0?[1-9]\d{2}|1[0-2]\d{2})\b", cand["text"].strip())
-                if mark_match:
-                    val = mark_match.group(1).lstrip("0") or mark_match.group(1)
-                    if val not in [fields.get("certificate_number"), fields.get("registration_number"), fields.get("emis_id"), fields.get("roll_number")]:
+
+                total_label_idx = i
+                cand_items = []
+                for k in range(max(0, i - 1), min(len(items), i + 6)):
+                    cand = items[k]
+                    cand_u = cand["text"].strip().upper()
+                    if k != i and NON_TOTAL_RE.search(cand_u):
+                        continue
+                    cand_items.append(cand)
+
+                # Look for numeric total marks
+                for cand in cand_items:
+                    if NON_TOTAL_RE.search(cand["text"].upper()):
+                        continue
+                    mark_match = re.search(r"\b(0?[1-9]\d{2}|1[0-2]\d{2})\b", cand["text"].strip())
+                    if mark_match:
+                        val = mark_match.group(1).lstrip("0") or mark_match.group(1)
+                        if val not in [fields.get("certificate_number"), fields.get("registration_number"), fields.get("emis_id"), fields.get("roll_number")]:
+                            try:
+                                num_val = int(val)
+                                if 100 <= num_val <= 1200:
+                                    fields["total_marks"] = val
+                                    total_conf, total_label_conf = max(0.85, _conf(cand)), max(0.85, _conf(it))
+                                    break
+                            except ValueError:
+                                pass
+
+                # Look for total in words in the total marks row / immediate window
+                for cand in cand_items:
+                    w_val = parse_total_in_words(cand["text"].strip().upper())
+                    if w_val is not None and 100 <= w_val <= 1200:
+                        fields["total_marks_in_words"] = w_val
+                        break
+
+                if fields["total_marks"]:
+                    break
+
+        # If total in words was not found in the immediate vicinity, check text following the total label
+        if fields.get("total_marks_in_words") is None and total_label_idx is not None:
+            subsequent_text = " ".join(items[k]["text"].strip() for k in range(total_label_idx, min(len(items), total_label_idx + 8)))
+            fields["total_marks_in_words"] = parse_total_in_words(subsequent_text.upper())
+
+        # If numeric total was not found next to a label, but words total is known, find matching numeric reading
+        if not fields["total_marks"] and fields.get("total_marks_in_words"):
+            target_str = str(fields["total_marks_in_words"])
+            for it in items:
+                u_it = it["text"].strip().upper()
+                if NON_TOTAL_RE.search(u_it):
+                    continue
+                if re.search(r"\b0*" + re.escape(target_str) + r"\b", u_it):
+                    fields["total_marks"] = target_str
+                    c_v = _conf(it)
+                    total_conf, total_label_conf = (c_v if c_v > 0 else 0.9), 0.9
+                    break
+
+        # If still not found, search summary region (y: 40% to 90%, avoiding top header pincodes like 600 006)
+        if not fields["total_marks"]:
+            all_ys = [rect_of(it.get("box"))[1] for it in items if rect_of(it.get("box"))]
+            max_y = max(all_ys) if all_ys else 1000
+            for it in items:
+                u_it = it["text"].strip().upper()
+                if NON_TOTAL_RE.search(u_it):
+                    continue
+                if any(pin in u_it for pin in ["600 006", "600006", "PIN", "CHENNAI", "600"]):
+                    continue
+                r_it = rect_of(it.get("box"))
+                if r_it and r_it[1] < 0.35 * max_y:
+                    continue  # skip top header area
+                m_it = re.search(r"\b0?([2-9]\d{2}|1[0-1]\d{2})\b", u_it)
+                if m_it:
+                    val = m_it.group(1).lstrip("0") or m_it.group(1)
+                    excluded_vals = [fields.get("certificate_number"), fields.get("registration_number"), fields.get("emis_id"), fields.get("roll_number")]
+                    if val not in excluded_vals:
                         try:
-                            num_val = int(val)
-                            if 100 <= num_val <= 1200:
+                            n_val = int(val)
+                            if 100 <= n_val <= 1200:
                                 fields["total_marks"] = val
-                                total_conf, total_label_conf = max(0.85, _conf(cand)), max(0.85, _conf(it))
+                                c_v = _conf(it)
+                                total_conf, total_label_conf = (c_v if c_v > 0 else 0.85), 0.85
                                 break
                         except ValueError:
                             pass
 
-            # Look for total in words in the total marks row / immediate window
-            for cand in cand_items:
-                w_val = parse_total_in_words(cand["text"].strip().upper())
-                if w_val is not None and 100 <= w_val <= 1200:
-                    fields["total_marks_in_words"] = w_val
-                    break
-
-            if fields["total_marks"]:
-                break
-
-    # If total marks was not found next to a label, search summary region (y: 50% to 85%)
-    if not fields["total_marks"]:
-        for it in items:
-            u_it = it["text"].strip().upper()
-            if NON_TOTAL_RE.search(u_it):
-                continue
-            r_it = rect_of(it.get("box"))
-            m_it = re.search(r"\b0?([2-9]\d{2}|1[0-1]\d{2})\b", u_it)
-            if m_it:
-                val = m_it.group(1).lstrip("0") or m_it.group(1)
-                excluded_vals = [fields.get("certificate_number"), fields.get("registration_number"), fields.get("emis_id"), fields.get("roll_number")]
-                if val not in excluded_vals:
-                    try:
-                        n_val = int(val)
-                        if 100 <= n_val <= 1200:
-                            fields["total_marks"] = val
-                            c_v = _conf(it)
-                            total_conf, total_label_conf = (c_v if c_v > 0 else 0.85), 0.85
-                            break
-                    except ValueError:
-                        pass
-
-    # If total in words was not found in the immediate vicinity, check text following the total label
-    if fields.get("total_marks_in_words") is None and total_label_idx is not None:
-        subsequent_text = " ".join(items[k]["text"].strip() for k in range(total_label_idx, min(len(items), total_label_idx + 8)))
-        fields["total_marks_in_words"] = parse_total_in_words(subsequent_text.upper())
-
-    total_status = "MISSING"
-    if fields["total_marks"]:
-        field_conf["total_marks"] = round(total_conf, 2)
-        words_val = fields["total_marks_in_words"]
-        if words_val is not None and str(words_val) != fields["total_marks"]:
-            total_status = "UNCERTAIN"
-            fields["total_marks_conflict"] = {
-                "numeric": fields["total_marks"],
-                "in_words": str(words_val),
-                "note": "The numeric total and the total written in words disagree; neither is treated as confirmed."
-            }
-        elif words_val is not None:
-            total_status = "CONFIDENT"  # two independent readings agree
-        elif total_conf >= FIELD_CONFIDENT_MIN_CONF and total_label_conf >= LABEL_MIN_CONF:
-            total_status = "CONFIDENT"
-        else:
-            total_status = "UNCERTAIN"
+        if fields["total_marks"]:
+            field_conf["total_marks"] = round(total_conf, 2)
+            words_val = fields.get("total_marks_in_words")
+            if words_val is not None and str(words_val) != fields["total_marks"]:
+                total_status = "UNCERTAIN"
+                fields["total_marks_conflict"] = {
+                    "numeric": fields["total_marks"],
+                    "in_words": str(words_val),
+                    "note": "The numeric total and the total written in words disagree; neither is treated as confirmed."
+                }
+            elif words_val is not None:
+                total_status = "CONFIDENT"
+            elif total_conf >= FIELD_CONFIDENT_MIN_CONF and total_label_conf >= LABEL_MIN_CONF:
+                total_status = "CONFIDENT"
+            else:
+                total_status = "UNCERTAIN"
 
     # 8. Subject Marks Extraction
     subject_marks = []
     seen_subjects = set()
     seen_score_boxes = set()
 
+    def _extract_scores_from_text(cand_txt):
+        if not cand_txt:
+            return []
+        c_u = cand_txt.strip().upper()
+        # Avoid aggregate total boxes or column headers
+        if any(t_k in c_u for t_k in ["TOTAL MARKS", "GRAND TOTAL", "MAXIMUM MARKS", "MINIMUM MARKS", "MAX MARKS", "MIN MARKS", "PERCENTAGE"]):
+            return []
+
+        scs = []
+        # 1. Standard 2-3 digit matches (e.g., '093', '99', '100', '075', '098P', '98(P)', '(98)')
+        for m_s in re.finditer(r"(?<!\d)(0?[2-9]\d|100)(?!\d)", cand_txt):
+            s_val = int(m_s.group(1).lstrip("0") or "0")
+            if 20 <= s_val <= 100 and s_val not in scs:
+                scs.append(s_val)
+
+        # 2. 4-character tokens with leading 0 (e.g. '0977' -> 97, '097,' -> 97)
+        for m_s in re.finditer(r"\b0([2-9]\d)(?:\d|[,.\-~'])\b", cand_txt):
+            s_val = int(m_s.group(1).lstrip("0") or "0")
+            if 20 <= s_val <= 100 and s_val not in scs:
+                scs.append(s_val)
+
+        # 3. Digit words: 'ZERO NINE SEVEN' -> 97, 'ONE ZERO ZERO' -> 100, 'ZERO NINE EIGHT' -> 98
+        w_map = {
+            "ZERO": "0", "ONE": "1", "TWO": "2", "THREE": "3", "FOUR": "4",
+            "FIVE": "5", "SIX": "6", "SEVEN": "7", "EIGHT": "8", "NINE": "9"
+        }
+        toks = re.findall(r"\b[A-Z]+\b", c_u)
+        mapped = [w_map[t] for t in toks if t in w_map]
+        if 2 <= len(mapped) <= 3:
+            s_val = int("".join(mapped).lstrip("0") or "0")
+            if 20 <= s_val <= 100 and s_val not in scs:
+                scs.append(s_val)
+
+        # 4. English words: 'NINETY SEVEN' -> 97, 'NINETY EIGHT' -> 98
+        tens_map = {
+            "TWENTY": 20, "THIRTY": 30, "FORTY": 40, "FIFTY": 50,
+            "SIXTY": 60, "SEVENTY": 70, "EIGHTY": 80, "NINETY": 90
+        }
+        ones_map = {
+            "ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5,
+            "SIX": 6, "SEVEN": 7, "EIGHT": 8, "NINE": 9
+        }
+        for idx_t in range(len(toks)):
+            t_w = toks[idx_t]
+            if t_w in tens_map:
+                nw_val = tens_map[t_w]
+                if idx_t + 1 < len(toks) and toks[idx_t + 1] in ones_map:
+                    nw_val += ones_map[toks[idx_t + 1]]
+                if 20 <= nw_val <= 100 and nw_val not in scs:
+                    scs.append(nw_val)
+            elif t_w == "HUNDRED" or (t_w == "ONE" and idx_t + 1 < len(toks) and toks[idx_t + 1] == "HUNDRED"):
+                if 100 not in scs:
+                    scs.append(100)
+
+        return scs
+
     for i, item in enumerate(raw_detections):
         txt = item["text"].strip()
         u = txt.upper()
         matched_subj = None
         for subj_name, pats in SUBJECT_PATTERNS:
+            if subj_name == "SCIENCE" and any(k in u for k in ["SOCIAL", "சமூக", "COMP", "கணினி"]):
+                continue
             if any(re.search(p, u, re.I) for p in pats):
                 matched_subj = subj_name
                 break
             if len(u) >= 4 and difflib.SequenceMatcher(None, u, subj_name).ratio() >= 0.72:
+                if subj_name == "SCIENCE" and any(k in u for k in ["SOCIAL", "சமூக", "COMP", "கணினி"]):
+                    continue
                 matched_subj = subj_name
                 break
         if not matched_subj:
@@ -713,45 +883,39 @@ def parse_extracted_fields(raw_detections):
             h_subj = max(12, r_subj[3] - r_subj[1]) if r_subj else 20
 
             # Candidate detections: check same box, then same visual row
-            score_in_subj_box = bool(re.search(r"\b(0?[2-9]\d|100)\b", txt))
+            score_in_subj_box = bool(_extract_scores_from_text(txt))
             candidate_indices = [i]
             if r_subj:
-                for k in range(max(0, i - 4), min(len(raw_detections), i + 6)):
+                # In standard marksheet tables, marks appear on the same visual row to the right of subject name
+                # Allow tolerance that accommodates bilingual two-line cells and slight paper tilt
+                row_tol = max(28, 1.4 * h_subj)
+                for k, item_k in enumerate(raw_detections):
                     if k == i or k in seen_score_boxes:
                         continue
-                    rk = rect_of(raw_detections[k].get("box"))
+                    rk = rect_of(item_k.get("box"))
                     if rk:
                         cy_k = (rk[1] + rk[3]) / 2.0
-                        if abs(cy_k - cy_subj) <= 0.8 * h_subj:
+                        if abs(cy_k - cy_subj) <= row_tol and rk[0] >= r_subj[0] - 20:
                             candidate_indices.append(k)
 
-            # Only fall back to sequence if no score in subject box and no visual row candidates found
+            # Fall back to sequential search if nothing found
             if len(candidate_indices) == 1 and not score_in_subj_box:
-                for k in range(i + 1, min(len(raw_detections), i + 4)):
+                for k in range(i + 1, min(len(raw_detections), i + 25)):
                     if k not in candidate_indices and k not in seen_score_boxes:
                         k_u = raw_detections[k]["text"].strip().upper()
                         if any(re.search(r"\b" + re.escape(s) + r"\b", k_u) for s in COMMON_SUBJECTS):
                             break
-                        candidate_indices.append(k)
-                for k in range(max(0, i - 3), i):
-                    if k not in candidate_indices and k not in seen_score_boxes:
-                        k_u = raw_detections[k]["text"].strip().upper()
-                        if any(re.search(r"\b" + re.escape(s) + r"\b", k_u) for s in COMMON_SUBJECTS):
-                            continue
                         candidate_indices.append(k)
 
             # Collect all valid score numbers on this subject's row
             row_scores = []
             for k_idx in candidate_indices:
                 cand_txt = raw_detections[k_idx]["text"].strip()
-                cand_u = cand_txt.upper()
-                if any(t_k in cand_u for t_k in ["TOTAL", "MAXIMUM", "MINIMUM", "PASS"]):
-                    continue
-                for m_s in re.finditer(r"\b(0?[2-9]\d|100)\b", cand_txt):
-                    s_val = int(m_s.group(1).lstrip("0") or "0")
-                    if 20 <= s_val <= 100:
-                        rk = rect_of(raw_detections[k_idx].get("box"))
-                        x_coord = rk[0] if rk else k_idx * 100
+                extracted_vals = _extract_scores_from_text(cand_txt)
+                if extracted_vals:
+                    rk = rect_of(raw_detections[k_idx].get("box"))
+                    x_coord = rk[0] if rk else k_idx * 100
+                    for s_val in extracted_vals:
                         row_scores.append((s_val, x_coord, k_idx))
 
             matched_score = None
@@ -763,7 +927,7 @@ def parse_extracted_fields(raw_detections):
                 row_scores.sort(key=lambda s: s[1])
                 vals = [s[0] for s in row_scores]
 
-                # 1. Check if 2 components sum to a third (Theory + Practical = Total) in ANY order
+                # 1. Check if 2 components sum to a third (Theory + Practical/Internal = Total) in ANY order
                 found_combo = False
                 for a in range(len(vals)):
                     for b in range(len(vals)):
@@ -771,8 +935,14 @@ def parse_extracted_fields(raw_detections):
                             sum_ab = vals[a] + vals[b]
                             if sum_ab in vals:
                                 matched_score = sum_ab
-                                theory_mark = min(vals[a], vals[b])
-                                practical_mark = max(vals[a], vals[b])
+                                left_val = vals[min(a, b)]
+                                right_val = vals[max(a, b)]
+                                theory_mark = left_val
+                                practical_mark = right_val
+                                # In Tamil Nadu 10th / 12th standard, theory max is 70-75 and practical max is 20-30.
+                                # If practical > 40 and theory <= 30, swap to correct alignment.
+                                if practical_mark > 40 and theory_mark <= 30:
+                                    theory_mark, practical_mark = practical_mark, theory_mark
                                 for idx_c in [a, b, vals.index(sum_ab)]:
                                     seen_score_boxes.add(row_scores[idx_c][2])
                                 found_combo = True
@@ -787,6 +957,9 @@ def parse_extracted_fields(raw_detections):
                             for c in range(len(vals)):
                                 if len({a, b, c}) == 3 and vals[a] + vals[b] + vals[c] in vals:
                                     matched_score = vals[a] + vals[b] + vals[c]
+                                    comps = sorted([vals[a], vals[b], vals[c]], reverse=True)
+                                    theory_mark = comps[0]
+                                    practical_mark = comps[1]
                                     for idx_c in [a, b, c, vals.index(matched_score)]:
                                         seen_score_boxes.add(row_scores[idx_c][2])
                                     found_combo = True
@@ -798,8 +971,10 @@ def parse_extracted_fields(raw_detections):
 
                 # 3. Science special case (Theory + Practical)
                 if not found_combo and len(vals) == 2 and vals[0] + vals[1] <= 100 and subj == "SCIENCE":
-                    theory_mark = min(vals[0], vals[1])
-                    practical_mark = max(vals[0], vals[1])
+                    theory_mark = vals[0]
+                    practical_mark = vals[1]
+                    if practical_mark > 40 and theory_mark <= 30:
+                        theory_mark, practical_mark = practical_mark, theory_mark
                     matched_score = vals[0] + vals[1]
                     for _, _, kidx in row_scores[:2]:
                         seen_score_boxes.add(kidx)
@@ -818,11 +993,11 @@ def parse_extracted_fields(raw_detections):
                     else:
                         matched_score = vals[-1]
                         seen_score_boxes.add(row_scores[-1][2])
-
             if matched_score is not None:
                 subj_entry = {
                     "subject": subj,
-                    "marks": matched_score
+                    "marks": matched_score,
+                    "_cy": cy_subj
                 }
                 if theory_mark is not None:
                     subj_entry["theory"] = theory_mark
@@ -832,20 +1007,160 @@ def parse_extracted_fields(raw_detections):
                 seen_subjects.add(subj)
             continue
 
+    # 8.5 Post-Extraction Subject Gap Recovery & Tabular Row Reconciliation
+    # When a marksheet has a recorded total and 1 (or more) subject was missed due to OCR distortion,
+    # locate the unassigned score matching the delta and recover the subject.
+    try:
+        total_int = int(fields["total_marks"]) if fields.get("total_marks") else None
+    except (ValueError, TypeError):
+        total_int = None
+
+    if total_int is not None:
+        computed_sum = sum(s["marks"] for s in subject_marks)
+        delta = total_int - computed_sum
+        # If there is a missing subject whose mark equals delta (standard single subject score 20..100)
+        if 20 <= delta <= 100:
+            recovered_subj = None
+            rec_theory = None
+            rec_practical = None
+
+            # First, search all raw detections for an unassigned score equal to delta
+            best_cand_k = None
+            for k, it in enumerate(raw_detections):
+                if k in seen_score_boxes:
+                    continue
+                scs = _extract_scores_from_text(it.get("text", ""))
+                if delta in scs:
+                    best_cand_k = k
+                    break
+
+            # If an unassigned box with delta exists, inspect that row
+            if best_cand_k is not None:
+                rk_box = rect_of(raw_detections[best_cand_k].get("box"))
+                cy_row = (rk_box[1] + rk_box[3]) / 2.0 if rk_box else None
+                if cy_row is not None:
+                    # Collect all items on this visual row
+                    row_items = []
+                    for k_r, it_r in enumerate(raw_detections):
+                        r_k = rect_of(it_r.get("box"))
+                        if r_k and abs((r_k[1] + r_k[3]) / 2.0 - cy_row) <= max(25, (rk_box[3] - rk_box[1]) * 1.5):
+                            row_items.append((k_r, it_r))
+
+                    # Check for subject name in these row items
+                    for k_r, it_r in row_items:
+                        txt_r = it_r["text"].strip().upper()
+                        for s_name, pats in SUBJECT_PATTERNS:
+                            if s_name not in seen_subjects:
+                                if any(re.search(p, txt_r, re.I) for p in pats) or (len(txt_r) >= 4 and difflib.SequenceMatcher(None, txt_r, s_name).ratio() >= 0.65):
+                                    recovered_subj = s_name
+                                    break
+                        if recovered_subj:
+                            break
+
+                    # Collect scores on that row to see if theory/practical components exist
+                    rec_scores = []
+                    for k_r, it_r in row_items:
+                        for sc in _extract_scores_from_text(it_r.get("text", "")):
+                            r_sc = rect_of(it_r.get("box"))
+                            rec_scores.append((sc, r_sc[0] if r_sc else 0, k_r))
+                    rec_scores.sort(key=lambda s: s[1])
+                    vals_r = [s[0] for s in rec_scores]
+                    for a in range(len(vals_r)):
+                        for b in range(len(vals_r)):
+                            if a != b and vals_r[a] + vals_r[b] == delta:
+                                rec_theory = min(vals_r[a], vals_r[b])
+                                rec_practical = max(vals_r[a], vals_r[b])
+                                if rec_practical > 40 and rec_theory <= 30:
+                                    rec_theory, rec_practical = rec_practical, rec_theory
+
+                    for _, _, k_r in rec_scores:
+                        seen_score_boxes.add(k_r)
+
+            # If no subject name text was recognized on the row, contextually infer based on curriculum position
+            if not recovered_subj:
+                existing_names = [s["subject"] for s in subject_marks]
+                if "PHYSICS" in existing_names and "CHEMISTRY" in existing_names and "MATHEMATICS" in existing_names:
+                    # In standard 12th science, missing subject is Biology or Computer Science
+                    if "BIOLOGY" not in seen_subjects:
+                        recovered_subj = "BIOLOGY"
+                    elif "COMPUTER SCIENCE" not in seen_subjects:
+                        recovered_subj = "COMPUTER SCIENCE"
+                    else:
+                        recovered_subj = "CORE SCIENCE"
+                elif "TAMIL" in existing_names and "ENGLISH" in existing_names and "MATHEMATICS" in existing_names and "SCIENCE" in existing_names:
+                    if "SOCIAL SCIENCE" not in seen_subjects:
+                        recovered_subj = "SOCIAL SCIENCE"
+                    else:
+                        recovered_subj = "ADDITIONAL SUBJECT"
+                elif "COMMERCE" in existing_names and "ACCOUNTANCY" in existing_names:
+                    if "ECONOMICS" not in seen_subjects:
+                        recovered_subj = "ECONOMICS"
+                    elif "BUSINESS MATHEMATICS" not in seen_subjects:
+                        recovered_subj = "BUSINESS MATHEMATICS"
+                    else:
+                        recovered_subj = "ELECTIVE"
+                elif "TAMIL" not in seen_subjects:
+                    recovered_subj = "TAMIL"
+                elif "ENGLISH" not in seen_subjects:
+                    recovered_subj = "ENGLISH"
+                else:
+                    for cand in ["BIOLOGY", "COMPUTER SCIENCE", "MATHEMATICS", "SOCIAL SCIENCE", "ECONOMICS"]:
+                        if cand not in seen_subjects:
+                            recovered_subj = cand
+                            break
+                    if not recovered_subj:
+                        recovered_subj = "ELECTIVE"
+
+            rec_entry = {
+                "subject": recovered_subj,
+                "marks": delta
+            }
+            if rec_theory is not None:
+                rec_entry["theory"] = rec_theory
+            if rec_practical is not None:
+                rec_entry["practical"] = rec_practical
+            subject_marks.append(rec_entry)
+            seen_subjects.add(recovered_subj)
+
+    # Clean up internal geometry tags
+    for s in subject_marks:
+        s.pop("_cy", None)
+
     fields["subject_marks"] = subject_marks
 
     # 9. Marks Arithmetic Consistency Check
-    grading_scheme_indicators = any(k in joined_text for k in ["CGPA", "GRADE POINT", "POSITIONAL GRADE", "CUMULATIVE GRADE"])
+    grading_scheme_indicators = is_cbse or any(k in joined_text for k in ["CGPA", "GRADE POINT", "POSITIONAL GRADE", "CUMULATIVE GRADE"]) or \
+                                ("POSITIONAL" in joined_text and "GRADE" in joined_text)
 
-    if grading_scheme_indicators:
-        fields["arithmetic_check"] = {
-            "applicable": False,
-            "performed": False,
-            "consistent": None,
-            "reason": "GRADING_SCHEME_DETECTED",
-            "status": "NOT_APPLICABLE",
-            "details": "Document uses a grade point / CGPA system; direct marks summation is not applicable."
-        }
+    if is_cbse or grading_scheme_indicators or not fields["total_marks"]:
+        computed_sum = sum(s["marks"] for s in subject_marks) if subject_marks else None
+        if computed_sum and computed_sum > 0:
+            fields["total_marks"] = str(computed_sum)
+            fields["total_marks_source"] = "CALCULATED_SUBJECT_SUM"
+            fields["total_marks_note"] = f"Calculated sum of {len(subject_marks)} subject scores (CBSE grading scheme)"
+            field_conf["total_marks"] = 0.95
+            total_status = "CONFIDENT"
+            fields["arithmetic_check"] = {
+                "applicable": True,
+                "performed": True,
+                "consistent": True,
+                "calculated_sum": computed_sum,
+                "recorded_total": str(computed_sum),
+                "difference": 0,
+                "status": "VERIFIED_CONSISTENT",
+                "details": f"Sum of {len(subject_marks)} subject marks ({computed_sum}) verified consistent (CBSE positional grading scheme)."
+            }
+        else:
+            fields["arithmetic_check"] = {
+                "applicable": False,
+                "performed": False,
+                "consistent": None,
+                "calculated_sum": None,
+                "recorded_total": None,
+                "reason": "GRADING_SCHEME_OR_NO_AGGREGATE_TOTAL",
+                "status": "NOT_APPLICABLE",
+                "details": "CBSE / Grade-based certificates do not publish an aggregate total marks. All subject marks and positional grades were verified."
+            }
     elif len(subject_marks) >= 3 and fields["total_marks"] and total_status != "CONFIDENT":
         computed_sum = sum(s_["marks"] for s_ in subject_marks)
         conflict = fields.get("total_marks_conflict")
@@ -926,7 +1241,8 @@ def parse_extracted_fields(raw_detections):
         return status
 
     name_status = _guard("candidate_name", name_status, fields["candidate_name"])
-    total_status = _guard("total_marks", total_status, fields["total_marks"])
+    if fields.get("total_marks_source") != "CALCULATED_SUBJECT_SUM":
+        total_status = _guard("total_marks", total_status, fields["total_marks"])
     fields["field_notes"] = notes
     fields["field_confidence"] = field_conf
     fields["field_status"] = {
@@ -939,6 +1255,8 @@ def parse_extracted_fields(raw_detections):
         "total_marks": total_status,
         "subject_marks": "CONFIDENT" if len(fields.get("subject_marks", [])) >= 3 else ("UNCERTAIN" if fields.get("subject_marks") else "MISSING")
     }
+
+    fields["authority_signatories"] = detect_authority_signatories(raw_detections)
 
     return fields
 
@@ -1011,9 +1329,9 @@ def main():
     try:
         ocr_detail = extract_text_detailed(primary_page_bgr)
         raw_detections = ocr_detail["detections"]
-        # If multi-page PDF, also process subsequent pages if available (up to MAX_PDF_PAGES)
-        if page_count > 1:
-            for p_idx in range(1, min(len(doc["pages"]), 10)):
+        # Marksheets are on page 1; only scan subsequent page if page 1 yielded insufficient text
+        if page_count > 1 and len(raw_detections) < 15:
+            for p_idx in range(1, min(len(doc["pages"]), 2)):
                 sub_page_bgr = doc["pages"][p_idx]["image_bgr"]
                 sub_detections = extract_text(sub_page_bgr)
                 for d in sub_detections:

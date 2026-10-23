@@ -60,11 +60,16 @@ function Upload() {
 
     setIsLoading(true);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 85000);
+
     try {
       const response = await fetch("http://localhost:5000/api/verify", {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const data = await response.json();
 
@@ -80,8 +85,13 @@ function Upload() {
         },
       });
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Upload error:", err);
-      setErrorMessage(err.message || "Failed to connect to backend server. Ensure backend is running on port 5000.");
+      if (err.name === "AbortError") {
+        setErrorMessage("Verification timed out (>85s). The image took too long to process on CPU. Please upload a clear, standard-resolution image.");
+      } else {
+        setErrorMessage(err.message || "Failed to connect to backend server. Ensure backend is running on port 5000.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -155,8 +165,8 @@ function Upload() {
 
         {isLoading && (
           <div style={{ textAlign: "center", marginTop: "20px", color: "#4b5563" }}>
-            <p>⏳ Preprocessing document &amp; running EasyOCR analysis...</p>
-            <small>This may take a few seconds on CPU.</small>
+            <p style={{ margin: "4px 0", fontWeight: "600" }}>⏳ Scanning &amp; Verifying Marksheet...</p>
+            <small style={{ color: "#64748b" }}>Normalizing resolution, extracting marks &amp; verifying QR evidence (~10-20 seconds on CPU).</small>
           </div>
         )}
       </div>

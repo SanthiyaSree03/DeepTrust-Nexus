@@ -13,6 +13,12 @@ import difflib
 import re
 
 NAME_LABEL_PATTERNS = [
+    r"THIS\s+IS\s+[T7][O0o]\s+CERTIFY\s+THAT",
+    r"THIS\s+IS\s+TO\s+CERTIFY\s+THAT",
+    r"CERTIFY\s+THAT",
+    r"CERTIFIED\s+THAT",
+    r"यह\s*प्रमाणित\s*किया\s*जाता\s*है\s*कि",
+    r"प्रमाणित\s*किया\s*जाता\s*है\s*कि",
     r"NAME\s+OF\s+THE\s+CANDIDATE",
     r"NAME\s+OF\s+CANDIDATE",
     r"CANDIDATE(?:'S)?\s+NAME",
@@ -29,7 +35,7 @@ NAME_LABEL_PATTERNS = [
     r".*C[A-Z0-9]{2,6}ndi[A-Za-z]*",
     r"\bCANDI[A-Z]*\b",
 ]
-FUZZY_NAME_LABELS = ["NAME OF THE CANDIDATE", "NAME OF CANDIDATE", "CANDIDATES NAME", "STUDENTS NAME"]
+FUZZY_NAME_LABELS = ["NAME OF THE CANDIDATE", "NAME OF CANDIDATE", "CANDIDATES NAME", "STUDENTS NAME", "THIS IS TO CERTIFY THAT"]
 NAME_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz. "
 REGION_VARIANTS = ["bg_normalized", "upscaled_clahe", "adaptive_threshold"]
 
@@ -66,24 +72,34 @@ def fuzzy_label_score(text, labels):
 
 def find_name_label(dets, fuzzy_min=0.8, page_h=None, page_w=None):
     """Returns (index, kind) with kind 'EXACT' or 'FUZZY', or (None, None)."""
+    # 1. Exact pattern matches (skipping parental labels)
     for i, d in enumerate(dets):
         txt = (d.get("text") or "").upper()
+        if any(p in txt for p in ["MOTHER", "FATHER", "GUARDIAN"]):
+            continue
         if any(re.search(p, txt, re.I) for p in NAME_LABEL_PATTERNS):
             return i, "EXACT"
+
+    # 2. Fuzzy label matches (skipping parental labels)
     best_i, best_s = None, 0.0
     for i, d in enumerate(dets):
+        txt = (d.get("text") or "").upper()
+        if any(p in txt for p in ["MOTHER", "FATHER", "GUARDIAN"]):
+            continue
         s = fuzzy_label_score(d.get("text"), FUZZY_NAME_LABELS)
         if s > best_s:
             best_i, best_s = i, s
     if best_i is not None and best_s >= fuzzy_min:
         return best_i, "FUZZY"
 
-    # Geometric fallback: In Tamil Nadu marksheets, candidate name header sits on the left cell (y: 18-35%)
+    # 3. Geometric fallback: In Tamil Nadu marksheets, candidate name header sits on the left cell (y: 18-35%)
     for i, d in enumerate(dets):
         r = rect_of(d.get("box"))
         if not r:
             continue
         txt = (d.get("text") or "").upper()
+        if any(p in txt for p in ["MOTHER", "FATHER", "GUARDIAN"]):
+            continue
         # Look for partial corruptions of bilingual candidate label
         if any(k in txt for k in ["TARST", "INEOF", "CNNDI", "CANDI", "NAME", "பெயர்", "தேர்வர்"]):
             return i, "FUZZY"

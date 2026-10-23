@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to <image-name>.truth.json and fill in EXACTLY what is printed on the document. Keep only the keys you can read with certainty. Do not commit real people's data.",
+  "candidate_name": "<NAME AS PRINTED>",
+  "certificate_number": "<SERIAL NUMBER AS PRINTED>",
+  "registration_number": "<PERMANENT REGISTER NUMBER AS PRINTED>",
+  "roll_number": "<ROLL NUMBER AS PRINTED>",
+  "total_marks": "<OBTAINED TOTAL, NOT THE MAXIMUM>",
+  "examination_year": "<e.g. APR 2023 as the parser formats it>"
+}
