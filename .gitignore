@@ -1,3 +1,14 @@
 ai/venv/
 __pycache__/
 *.pyc
+.env
+*.env
+backend/.env
+ai/.env
+*.log
+node_modules/
+ai/*_out.json
+ai/*_err.txt
+ai/err_sample.txt
+ai/output_sample.json
+

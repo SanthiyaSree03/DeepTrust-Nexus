@@ -23,7 +23,7 @@ import cv2
 import easyocr
 import numpy as np
 
-DEFAULT_VARIANTS = ["upscaled_clahe", "bg_normalized"]
+DEFAULT_VARIANTS = ["upscaled_clahe", "bg_normalized", "hires_denoise_bg", "hires_tophat"]
 
 
 def _env_list(name, default):
@@ -68,12 +68,16 @@ def _gray(image):
 
 
 def _adaptive_factor(image, target_long=1800):
-    """Calculates scaling factor to bring image to target_long (1800px).
-    Prevents oversized camera photos (3000-8000px) from taking 10+ minutes on CPU."""
+    """Calculates scaling factor to bring image to target_long.
+    For small images (<1200px), allows aggressive upscaling up to 5x.
+    For large images (>2000px), downscales to target to manage processing time."""
     h, w = image.shape[:2]
     long_side = max(h, w)
-    if long_side < 1200:
-        return min(2.0, max(1.5, round(float(target_long) / float(long_side), 2)))
+    if long_side < 800:
+        # Very small images need aggressive upscaling
+        return min(5.0, round(float(target_long) / float(long_side), 2))
+    elif long_side < 1200:
+        return min(3.5, max(1.5, round(float(target_long) / float(long_side), 2)))
     elif long_side > 2000:
         return round(float(target_long) / float(long_side), 2)
     return 1.0
@@ -98,7 +102,7 @@ def variant_upscaled_2x(image):
 
 def variant_upscaled_clahe(image):
     """Adaptive upscaling (bicubic to target resolution) + CLAHE contrast enhancement."""
-    factor = _adaptive_factor(image, 1800)
+    factor = _adaptive_factor(image, 2400)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(_upscale(_gray(image), factor=factor)), factor
 
@@ -106,7 +110,7 @@ def variant_upscaled_clahe(image):
 def variant_bg_normalized(image):
     """Divides by an estimate of the local background. Upscales first so small text strokes
     are preserved rather than wiped out by morphological dilation, then applies CLAHE."""
-    factor = _adaptive_factor(image, 1800)
+    factor = _adaptive_factor(image, 2400)
     gray = _upscale(_gray(image), factor=factor)
     k = max(21, (min(gray.shape[:2]) // 40) | 1)
     bg = cv2.medianBlur(cv2.dilate(gray, np.ones((7, 7), np.uint8)), k if k % 2 else k + 1)
@@ -122,6 +126,48 @@ def variant_adaptive_threshold(image):
     return cv2.adaptiveThreshold(up, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 15), factor
 
 
+def variant_hires_denoise_bg(image):
+    """High-resolution denoised background normalization.
+    Upscales small images to ~3000px, applies fastNlMeansDenoising to suppress decorative
+    guilloche/watermark patterns, then divides by estimated background. Best for reading
+    numbers, dates, and structured table data on decorated Indian marksheets."""
+    gray = _gray(image)
+    h, w = gray.shape[:2]
+    target = 3000
+    factor = target / max(h, w)
+    if factor < 1.05:
+        factor = 1.0
+    up = _upscale(gray, factor=factor)
+    # Non-local means denoising strips fine decorative patterns while preserving text edges
+    denoised = cv2.fastNlMeansDenoising(up, None, 12, 7, 21)
+    # Aggressive background estimation with large morphological structuring element
+    k = max(41, (min(denoised.shape[:2]) // 15) | 1)
+    bg = cv2.medianBlur(cv2.dilate(denoised, np.ones((11, 11), np.uint8)), k if k % 2 else k + 1)
+    flat = cv2.divide(denoised, bg, scale=255)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    return clahe.apply(flat), factor
+
+
+def variant_hires_tophat(image):
+    """High-resolution morphological black top-hat extraction.
+    The black top-hat (closing − original) isolates dark text strokes from ANY background,
+    making it especially effective at reading candidate names and subject labels that are
+    printed with different fonts on patterned backgrounds."""
+    gray = _gray(image)
+    h, w = gray.shape[:2]
+    target = 3000
+    factor = target / max(h, w)
+    if factor < 1.05:
+        factor = 1.0
+    up = _upscale(gray, factor=factor)
+    # Black top-hat: closing − original → dark objects (text) on flat background
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25))
+    tophat = cv2.morphologyEx(up, cv2.MORPH_BLACKHAT, kernel)
+    # Invert so text is dark on white (standard for OCR)
+    inverted = 255 - tophat
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    return clahe.apply(inverted), factor
+
 
 VARIANTS = {
     "original": variant_original,
@@ -129,6 +175,8 @@ VARIANTS = {
     "upscaled_clahe": variant_upscaled_clahe,
     "bg_normalized": variant_bg_normalized,
     "adaptive_threshold": variant_adaptive_threshold,
+    "hires_denoise_bg": variant_hires_denoise_bg,
+    "hires_tophat": variant_hires_tophat,
 }
 
 

@@ -13,8 +13,6 @@ real_stdout = sys.stdout
 sys.stdout = sys.stderr
 
 try:
-    from ocr import (extract_text, extract_text_detailed, VARIANTS as OCR_VARIANTS, reader as OCR_READER,
-                     ACTIVE_LANGS, LANG_NOTE, OCR_LANGS_REQUESTED)
     from name_region import (NAME_LABEL_PATTERNS, find_name_label, fuzzy_label_score, rect_of,
                              reocr_name_region, decide_name_override)
     from qr_validator import analyze_certificate_qr
@@ -23,7 +21,7 @@ except Exception as e:
     sys.stdout = real_stdout
     print(json.dumps({
         "success": False,
-        "error": f"Failed to import OCR, QR, or Tamper module: {str(e)}"
+        "error": f"Failed to import helper module: {str(e)}"
     }))
     sys.exit(1)
 
@@ -42,7 +40,9 @@ EXCLUDED_NAME_KEYWORDS = {
     "STAMP", "OFFICE", "ENROLMENT", "REGULAR", "PRIVATE", "STATUS", "REMARKS",
     "INFORMATION", "NOTE", "CHECK", "PAGE", "COUNCIL", "INSTRUCTIONS", "IMPORTANT",
     "SCIENCE", "SOCIAL", "TECHNOLOGY", "COMPUTER", "STANDARD", "LIT", "LNG",
-    "SCHOLASTIC", "ACHIEVEMENTS", "ADDITIONAL", "CORE", "ELECTIVE", "FOUNDATION"
+    "SCHOLASTIC", "ACHIEVEMENTS", "ADDITIONAL", "CORE", "ELECTIVE", "FOUNDATION",
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    "JANUARY", "FEBRUARY", "MARCH", "APRIL", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
 }
 
 COMMON_SUBJECTS = [
@@ -329,7 +329,7 @@ def _name_candidate_after(valid_items, i):
             if any(p in cand_u for p in ["MOTHER", "FATHER", "GUARDIAN", "ROLL", "REGISTER"]):
                 continue
             cleaned = clean_name_string(cand["text"])
-            if is_valid_name_candidate(cleaned, require_multiword=False):
+            if is_valid_name_candidate(cleaned, require_multiword=False) and name_is_plausible(cleaned):
                 candidate_name = cleaned
                 cand_r = rect_of(cand.get("box"))
                 if cand_r:
@@ -355,7 +355,7 @@ def _name_candidate_after(valid_items, i):
         if any(p in cand_u for p in ["MOTHER", "FATHER", "GUARDIAN", "ROLL", "REGISTER"]):
             continue
         cleaned = clean_name_string(cand["text"])
-        if is_valid_name_candidate(cleaned, require_multiword=False):
+        if is_valid_name_candidate(cleaned, require_multiword=False) and name_is_plausible(cleaned):
             return {"name": cleaned, "confidence": round(_conf(cand), 2), "raw_ocr": cand["text"],
                     "candidate_box": cand.get("box")}
     return None
@@ -403,13 +403,14 @@ def extract_candidate_name_generic(raw_detections, all_texts=None):
                 return found
 
     # 2. Pattern-based fallback (must have >= 2 words or word + initial to avoid single OCR words)
+    # Give priority to candidate details block (y between 300 and 700), never top logos/headers (<300)
     candidates = []
     for item in valid_items:
         txt = item["text"].strip()
         cleaned = clean_name_string(txt)
-        if is_valid_name_candidate(cleaned, require_multiword=True):
+        if is_valid_name_candidate(cleaned, require_multiword=True) and name_is_plausible(cleaned):
             r = rect_of(item.get("box"))
-            y_priority = 1 if (r and r[1] < 350) else 0
+            y_priority = 1 if (r and 320 <= r[1] <= 700) else 0
             candidates.append({
                 "name": cleaned,
                 "confidence": round(_conf(item), 2),
@@ -621,7 +622,7 @@ def parse_extracted_fields(raw_detections):
         "CLASS XII", "CLASS 12", "12TH STANDARD", "12TH", "CERTIFICATE SL. NO. HSE",
         "CERTIFICATE SL.NO. HSE", "SL. NO. HSE", "SL.NO. HSE", "SL NO HSE",
         "HSE", "மேல்நிலைப்", "மேல்நிலை", "H S E", "SENIOR SCHOOL CERTIFICATE"
-    ])
+    ]) or bool(re.search(r"HIGHER\s+S\S*\s*(?:COURSE|CERT|EXAM|COMM|COND)", joined_text, re.I))
 
     if is_10th and not is_12th:
         fields["course"] = "Secondary School Leaving Certificate (10th)"
@@ -676,7 +677,7 @@ def parse_extracted_fields(raw_detections):
         total_status = "NOT_APPLICABLE"
     else:
         TOTAL_LABEL_RE = re.compile(
-            r"\b(?:TOTAL\s*MARKS?|TOTAL|GRAND\s*TOTAL|TOMAL\s*MARKS?|TOMAL|IOIAL\s*MARKS?|IOIAL|TOTL|TOTAI|IOTAL|T0TAL|OiAL|ALMNRES|OiALMNRES|AL\s*MARKS|AL\s*MRKS|மொத்த[ா-்]*)\b",
+            r"(?:\b(?:TOTAL\s*MARKS?|TOTAL|GRAND\s*TOTAL|TOMAL\s*MARKS?|TOMAL|IOIAL\s*MARKS?|IOIAL|TOTL|TOTAI|IOTAL|T0TAL|OiAL|ALMNRES|OiALMNRES|AL\s*MARKS|AL\s*MRKS|மொத்த[ா-்]*)\b|Ioi[,\.\s]*UL\s*MaRkS|[\w\.,]{2,6}\s*MARKS?\s*:)",
             re.I
         )
         NON_TOTAL_RE = re.compile(r"\b(?:MAX(?:IMUM)?|MIN(?:IMUM)?|PASS\s*MARKS?|MARKS\s*OBTAINED|THEORY|PRACTICAL|IA/?PR|GRADE|POSITIONAL|SUB(?:JECT)?\s*CODE)\b", re.I)
@@ -693,15 +694,33 @@ def parse_extracted_fields(raw_detections):
 
                 total_label_idx = i
                 cand_items = []
-                for k in range(max(0, i - 1), min(len(items), i + 6)):
-                    cand = items[k]
+                r_it = rect_of(it.get("box"))
+                it_cy = (r_it[1] + r_it[3]) / 2.0 if r_it else None
+
+                # Search nearby items in reading order AND items horizontally on the same row
+                for k, cand in enumerate(items):
                     cand_u = cand["text"].strip().upper()
-                    if k != i and NON_TOTAL_RE.search(cand_u):
+                    if NON_TOTAL_RE.search(cand_u):
                         continue
-                    cand_items.append(cand)
+                    if abs(k - i) <= 8:
+                        cand_items.append((k, cand))
+                    elif it_cy is not None:
+                        r_c = rect_of(cand.get("box"))
+                        if r_c and abs((r_c[1] + r_c[3]) / 2.0 - it_cy) <= 35:
+                            cand_items.append((k, cand))
+
+                def _cand_rank(item_pair):
+                    c_idx, cand = item_pair
+                    r_c = rect_of(cand.get("box"))
+                    same_row = bool(r_c and it_cy and abs((r_c[1] + r_c[3]) / 2.0 - it_cy) <= 30)
+                    after_label = (c_idx >= i)
+                    conf = _conf(cand)
+                    return (same_row, after_label, conf)
+
+                cand_items.sort(key=_cand_rank, reverse=True)
 
                 # Look for numeric total marks
-                for cand in cand_items:
+                for _, cand in cand_items:
                     if NON_TOTAL_RE.search(cand["text"].upper()):
                         continue
                     mark_match = re.search(r"\b(0?[1-9]\d{2}|1[0-2]\d{2})\b", cand["text"].strip())
@@ -718,7 +737,7 @@ def parse_extracted_fields(raw_detections):
                                 pass
 
                 # Look for total in words in the total marks row / immediate window
-                for cand in cand_items:
+                for _, cand in cand_items:
                     w_val = parse_total_in_words(cand["text"].strip().upper())
                     if w_val is not None and 100 <= w_val <= 1200:
                         fields["total_marks_in_words"] = w_val
@@ -1268,6 +1287,7 @@ def apply_name_region_reread(fields, image_bgr, raw_detections, ocr_reader=None,
     if fields["field_status"].get("candidate_name") == "CONFIDENT" or os.environ.get("DEEPTRUST_NAME_REOCR", "1") == "0":
         return None
     try:
+        from ocr import VARIANTS as OCR_VARIANTS, reader as OCR_READER
         diag = reocr_name_region(image_bgr, raw_detections, ocr_reader or OCR_READER, variant_funcs or OCR_VARIANTS,
                                  clean_name_string, is_valid_name_candidate, name_is_plausible)
         first = {"name": fields["candidate_name"],
@@ -1325,37 +1345,60 @@ def main():
     primary_page_bgr = doc["pages"][0]["image_bgr"]
     format_type = doc.get("format", "UNKNOWN")
 
-    # 2. Extract OCR text
+    # 2. Extract OCR text / Multimodal Vision AI
+    use_gemini = False
+    gemini_ocr_metrics = None
     try:
-        ocr_detail = extract_text_detailed(primary_page_bgr)
-        raw_detections = ocr_detail["detections"]
-        # Marksheets are on page 1; only scan subsequent page if page 1 yielded insufficient text
-        if page_count > 1 and len(raw_detections) < 15:
-            for p_idx in range(1, min(len(doc["pages"]), 2)):
-                sub_page_bgr = doc["pages"][p_idx]["image_bgr"]
-                sub_detections = extract_text(sub_page_bgr)
-                for d in sub_detections:
-                    d["page"] = p_idx + 1
-                raw_detections.extend(sub_detections)
-    except Exception as e:
-        sys.stdout = real_stdout
-        print(json.dumps({
-            "success": False,
-            "error": f"OCR extraction failed: {str(e)}"
-        }))
-        sys.exit(1)
+        from gemini_vision import is_gemini_available, extract_certificate_with_gemini
+        if is_gemini_available():
+            use_gemini = True
+    except Exception:
+        use_gemini = False
 
-    total_boxes = len(raw_detections)
-    if total_boxes > 0:
-        confidences = [d.get("mean_confidence", d.get("confidence", 0.0)) for d in raw_detections]
-        avg_conf = sum(confidences) / total_boxes
-    else:
-        avg_conf = 0.0
+    if use_gemini:
+        try:
+            structured_fields, raw_detections, gemini_ocr_metrics = extract_certificate_with_gemini(primary_page_bgr)
+            ocr_detail = {"variants_used": ["gemini_multimodal_vision"], "per_variant": {}}
+            name_region_diag = {"attempted": False, "reason": "GEMINI_VISION_CONFIDENT"}
+            total_boxes = len(raw_detections)
+            avg_conf = 0.99
+        except Exception as gemini_err:
+            sys.stderr.write(f"Gemini Vision call failed, falling back to local OCR: {gemini_err}\n")
+            use_gemini = False
 
-    structured_fields = parse_extracted_fields(raw_detections)
+    if not use_gemini:
+        try:
+            from ocr import (extract_text, extract_text_detailed, VARIANTS as OCR_VARIANTS, reader as OCR_READER,
+                             ACTIVE_LANGS, LANG_NOTE, OCR_LANGS_REQUESTED)
+            ocr_detail = extract_text_detailed(primary_page_bgr)
+            raw_detections = ocr_detail["detections"]
+            # Marksheets are on page 1; only scan subsequent page if page 1 yielded insufficient text
+            if page_count > 1 and len(raw_detections) < 15:
+                for p_idx in range(1, min(len(doc["pages"]), 2)):
+                    sub_page_bgr = doc["pages"][p_idx]["image_bgr"]
+                    sub_detections = extract_text(sub_page_bgr)
+                    for d in sub_detections:
+                        d["page"] = p_idx + 1
+                    raw_detections.extend(sub_detections)
+        except Exception as e:
+            sys.stdout = real_stdout
+            print(json.dumps({
+                "success": False,
+                "error": f"OCR extraction failed: {str(e)}"
+            }))
+            sys.exit(1)
 
-    # Targeted re-read of the name value region when the whole-page read is not CONFIDENT.
-    name_region_diag = apply_name_region_reread(structured_fields, primary_page_bgr, raw_detections)
+        total_boxes = len(raw_detections)
+        if total_boxes > 0:
+            confidences = [d.get("mean_confidence", d.get("confidence", 0.0)) for d in raw_detections]
+            avg_conf = sum(confidences) / total_boxes
+        else:
+            avg_conf = 0.0
+
+        structured_fields = parse_extracted_fields(raw_detections)
+
+        # Targeted re-read of the name value region when the whole-page read is not CONFIDENT.
+        name_region_diag = apply_name_region_reread(structured_fields, primary_page_bgr, raw_detections)
 
     try:
         qr_analysis = analyze_certificate_qr(primary_page_bgr, ocr_fields=structured_fields)
@@ -1405,7 +1448,7 @@ def main():
         "extracted_fields": structured_fields,
         "qr_analysis": qr_analysis,
         "tamper_analysis": tamper_analysis,
-        "ocr_metrics": {
+        "ocr_metrics": gemini_ocr_metrics if (use_gemini and gemini_ocr_metrics) else {
             "total_boxes_detected": total_boxes,
             "average_confidence": round(avg_conf, 2),
             "average_confidence_percentage": f"{avg_conf * 100:.1f}%",

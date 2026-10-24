@@ -1832,8 +1832,10 @@ app.post("/api/verify", upload.single("marksheet"), (req, res) => {
     });
   }
 
-  // Spawn Python OCR child process with 75s safety timeout
-  const pythonProcess = spawn(pythonExecutable, [scriptPath, uploadedFilePath]);
+  // Spawn Python OCR child process with 180s safety timeout (accommodates dual-pass CPU processing)
+  const pythonProcess = spawn(pythonExecutable, [scriptPath, uploadedFilePath], {
+    env: { ...process.env },
+  });
 
   let stdoutData = "";
   let stderrData = "";
@@ -1844,7 +1846,7 @@ app.post("/api/verify", upload.single("marksheet"), (req, res) => {
     try {
       pythonProcess.kill();
     } catch (_) {}
-  }, 75000);
+  }, 180000);
 
   pythonProcess.stdout.on("data", (chunk) => {
     stdoutData += chunk.toString();
