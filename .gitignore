@@ -44,3 +44,4 @@ ai/diag_report.json
 
 # Uploaded documents
 backend/uploads/
+ai/__pycache__/
