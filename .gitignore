@@ -11,4 +11,36 @@ ai/*_out.json
 ai/*_err.txt
 ai/err_sample.txt
 ai/output_sample.json
-
+
+# Python generated files
+__pycache__/
+*.py[cod]
+venv/
+venv_broken_backup/
+
+# Temporary OCR debugging files
+ai/diag_*
+ai/scratch_*
+ai/_fake_pipeline_driver.py
+ai/evaluate_extraction.py
+ai/find_fast_model.py
+ai/list_models.py
+ai/test_fast_models.py
+ai/test_full_gemini.py
+ai/test_gemini_35.py
+ai/test_gemini_speed.py
+ai/test_local_ocr_speed.py
+diagnostics/
+
+# Private test documents and generated output
+ai/*marksheet*
+a_python_10th.json
+a_python_12th.json
+ai/diag_report.json
+
+# Environment secrets
+.env
+**/.env
+
+# Uploaded documents
+backend/uploads/

@@ -23,7 +23,7 @@ import cv2
 import easyocr
 import numpy as np
 
-DEFAULT_VARIANTS = ["upscaled_clahe", "bg_normalized", "hires_denoise_bg", "hires_tophat"]
+DEFAULT_VARIANTS = ["upscaled_clahe", "bg_normalized"]
 
 
 def _env_list(name, default):
@@ -69,15 +69,12 @@ def _gray(image):
 
 def _adaptive_factor(image, target_long=1800):
     """Calculates scaling factor to bring image to target_long.
-    For small images (<1200px), allows aggressive upscaling up to 5x.
+    For small images (<1200px), allows moderate upscaling up to 2x.
     For large images (>2000px), downscales to target to manage processing time."""
     h, w = image.shape[:2]
     long_side = max(h, w)
-    if long_side < 800:
-        # Very small images need aggressive upscaling
-        return min(5.0, round(float(target_long) / float(long_side), 2))
-    elif long_side < 1200:
-        return min(3.5, max(1.5, round(float(target_long) / float(long_side), 2)))
+    if long_side < 1200:
+        return min(2.0, max(1.5, round(float(target_long) / float(long_side), 2)))
     elif long_side > 2000:
         return round(float(target_long) / float(long_side), 2)
     return 1.0
@@ -102,7 +99,7 @@ def variant_upscaled_2x(image):
 
 def variant_upscaled_clahe(image):
     """Adaptive upscaling (bicubic to target resolution) + CLAHE contrast enhancement."""
-    factor = _adaptive_factor(image, 2400)
+    factor = _adaptive_factor(image, 1800)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(_upscale(_gray(image), factor=factor)), factor
 
@@ -110,7 +107,7 @@ def variant_upscaled_clahe(image):
 def variant_bg_normalized(image):
     """Divides by an estimate of the local background. Upscales first so small text strokes
     are preserved rather than wiped out by morphological dilation, then applies CLAHE."""
-    factor = _adaptive_factor(image, 2400)
+    factor = _adaptive_factor(image, 1800)
     gray = _upscale(_gray(image), factor=factor)
     k = max(21, (min(gray.shape[:2]) // 40) | 1)
     bg = cv2.medianBlur(cv2.dilate(gray, np.ones((7, 7), np.uint8)), k if k % 2 else k + 1)

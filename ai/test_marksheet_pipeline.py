@@ -70,17 +70,36 @@ def evaluate_marksheet(image_path):
     primary_bgr = doc["pages"][0]["image_bgr"]
     quality = inspect_image_quality(primary_bgr)
 
-    # 1. OCR extraction
-    raw_detections = extract_text(primary_bgr)
-    total_boxes = len(raw_detections)
-    confidences = [d.get("confidence", 0.0) for d in raw_detections]
-    avg_conf = sum(confidences) / total_boxes if total_boxes > 0 else 0.0
+    use_gemini = False
+    if os.environ.get("DEEPTRUST_FORCE_LOCAL_OCR", "0") != "1":
+        try:
+            from gemini_vision import is_gemini_available, extract_certificate_with_gemini
+            if is_gemini_available():
+                use_gemini = True
+        except Exception:
+            use_gemini = False
 
-    # 2. Structured fields parsing
-    extracted_fields = parse_extracted_fields(raw_detections)
+    if use_gemini:
+        try:
+            extracted_fields, raw_detections, gemini_ocr_metrics = extract_certificate_with_gemini(primary_bgr)
+            total_boxes = len(raw_detections)
+            avg_conf = 0.99
+        except Exception as gemini_err:
+            sys.stderr.write(f"Gemini Vision call failed, falling back to local OCR: {gemini_err}\n")
+            use_gemini = False
 
-    # 2b. Targeted re-reading of candidate name region (matches extract_cli)
-    apply_name_region_reread(extracted_fields, primary_bgr, raw_detections)
+    if not use_gemini:
+        # 1. OCR extraction
+        raw_detections = extract_text(primary_bgr)
+        total_boxes = len(raw_detections)
+        confidences = [d.get("confidence", 0.0) for d in raw_detections]
+        avg_conf = sum(confidences) / total_boxes if total_boxes > 0 else 0.0
+
+        # 2. Structured fields parsing
+        extracted_fields = parse_extracted_fields(raw_detections)
+
+        # 2b. Targeted re-reading of candidate name region (matches extract_cli)
+        apply_name_region_reread(extracted_fields, primary_bgr, raw_detections)
 
     # 3. QR code analysis
     qr_analysis = analyze_certificate_qr(primary_bgr, ocr_fields=extracted_fields)

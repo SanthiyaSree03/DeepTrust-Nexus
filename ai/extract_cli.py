@@ -192,8 +192,10 @@ def repair_ocr_name_chars(s):
 def clean_name_string(s):
     if not s:
         return ""
-    cleaned = repair_ocr_name_chars(s)
-    cleaned = re.sub(r"[{}\[\]()@$#~*|_\":;!?]+", "", cleaned)
+    cleaned = re.sub(r"[{}\[\]()@$#~*|_\":;!?]+", " ", s)
+    cleaned = re.sub(r"^[^a-zA-Z]+", "", cleaned)
+    cleaned = re.sub(r"[^a-zA-Z\.]+$", "", cleaned)
+    cleaned = repair_ocr_name_chars(cleaned)
     cleaned = re.sub(r"^[^a-zA-Z]+", "", cleaned)
     cleaned = re.sub(r"[^a-zA-Z\.]+$", "", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -286,6 +288,7 @@ def _name_candidate_after(valid_items, i):
 
         # Determine cell bounds: if bilingual or tabular, preceding boxes on this row mark the cell start
         cell_x0 = hr[0]
+        is_tabular_header = False
         for k, it in enumerate(valid_items):
             if k == i:
                 continue
@@ -295,6 +298,7 @@ def _name_candidate_after(valid_items, i):
             cy = (r[1] + r[3]) / 2.0
             if abs(cy - hcy) <= 0.8 * h and r[2] <= hr[0] + h:
                 cell_x0 = min(cell_x0, r[0])
+                is_tabular_header = True
         # Expand leftwards for tabular cells (up to 15 * h)
         cell_x0 = min(cell_x0, max(0, hr[0] - 15 * h))
         cell_x1 = hr[2] + int(1.5 * h)
@@ -317,7 +321,8 @@ def _name_candidate_after(valid_items, i):
             cy = (r[1] + r[3]) / 2.0
 
             # (1) Same row to the right (inline key-value layout, e.g. "This is to certify that RITHIKAA V" or "Name: John")
-            if abs(cy - hcy) <= 0.85 * h and r[0] >= hr[2] - 0.5 * h:
+            # Only consider same-row if not a tabular cell header with preceding label, and within inline proximity (<= 3.5 * h)
+            if not is_tabular_header and abs(cy - hcy) <= 0.85 * h and -0.5 * h <= r[0] - hr[2] <= 3.5 * h:
                 ordered.append((0, r[0] - hr[2], k))
             # (2) Tabular cell below the header (within cell column bounds)
             elif 0 <= r[1] - hr[3] <= 4.0 * h and (cell_x0 - h <= r[0] <= cell_x1 or cell_x0 - h <= r[2] <= cell_x1):
@@ -329,7 +334,7 @@ def _name_candidate_after(valid_items, i):
             if any(p in cand_u for p in ["MOTHER", "FATHER", "GUARDIAN", "ROLL", "REGISTER"]):
                 continue
             cleaned = clean_name_string(cand["text"])
-            if is_valid_name_candidate(cleaned, require_multiword=False) and name_is_plausible(cleaned):
+            if is_valid_name_candidate(cleaned, require_multiword=False):
                 candidate_name = cleaned
                 cand_r = rect_of(cand.get("box"))
                 if cand_r:
@@ -355,7 +360,7 @@ def _name_candidate_after(valid_items, i):
         if any(p in cand_u for p in ["MOTHER", "FATHER", "GUARDIAN", "ROLL", "REGISTER"]):
             continue
         cleaned = clean_name_string(cand["text"])
-        if is_valid_name_candidate(cleaned, require_multiword=False) and name_is_plausible(cleaned):
+        if is_valid_name_candidate(cleaned, require_multiword=False):
             return {"name": cleaned, "confidence": round(_conf(cand), 2), "raw_ocr": cand["text"],
                     "candidate_box": cand.get("box")}
     return None
@@ -539,15 +544,21 @@ def parse_extracted_fields(raw_detections):
                 prev = items[idx - 1]["text"] if idx > 0 else ""
                 if re.search(r"EMIS", txt + " " + prev, re.I):
                     continue
-                reg_match = re.search(r"\b([A-Z]{1,4}\d{2}[A-Z]\d{6,12})\b", txt.upper()) or re.search(r"\b(\d{10})\b", txt)
-                if reg_match:
-                    fields["registration_number"] = reg_match.group(1).upper()
-                    r_box = rect_of(it.get("box"))
-                    is_student_row = r_box and 80 <= r_box[1] <= 350
-                    fields["registration_source"] = "TABLE_CELL_REGISTRATION" if is_student_row else "UNLABELLED_REGISTRATION"
+                reg_match_alpha = re.search(r"\b([A-Z]{1,4}\d{2}[A-Z]\d{6,12})\b", txt.upper())
+                reg_match_10 = re.search(r"\b(\d{10})\b", txt)
+                if reg_match_alpha:
+                    fields["registration_number"] = reg_match_alpha.group(1).upper()
+                    fields["registration_source"] = "UNLABELLED_REGISTRATION"
                     c_val = _conf(it)
                     reg_conf = c_val if c_val > 0 else 0.85
-                    reg_labelled = bool(is_student_row)
+                    reg_labelled = False
+                    break
+                elif reg_match_10:
+                    fields["registration_number"] = reg_match_10.group(1)
+                    fields["registration_source"] = "UNLABELLED_10_DIGIT"
+                    c_val = _conf(it)
+                    reg_conf = c_val if c_val > 0 else 0.85
+                    reg_labelled = False
                     break
     if fields["registration_number"]:
         field_conf["registration_number"] = round(reg_conf, 2)
@@ -587,8 +598,8 @@ def parse_extracted_fields(raw_detections):
             top_candidates.sort(key=lambda c: (c["is_top"], c["conf"] >= 0.6, c["conf"]), reverse=True)
             best = top_candidates[0]
             fields["certificate_number"] = best["val"]
-            fields["certificate_number_source"] = "TOP_BANNER_SERIAL" if best["is_top"] else "UNLABELLED_NUMERIC"
-            cert_conf, cert_labelled = best["conf"], best["is_top"]
+            fields["certificate_number_source"] = "UNLABELLED_NUMERIC"
+            cert_conf, cert_labelled = best["conf"], False
     if fields["certificate_number"]:
         field_conf["certificate_number"] = round(cert_conf, 2)
 
@@ -670,14 +681,9 @@ def parse_extracted_fields(raw_detections):
     total_label_idx = None
     total_status = "MISSING"
 
-    # In CBSE / Grade-based certificates, no aggregate total marks row exists.
-    if is_cbse:
-        fields["total_marks"] = None
-        fields["total_marks_in_words"] = None
-        total_status = "NOT_APPLICABLE"
-    else:
+    if True:
         TOTAL_LABEL_RE = re.compile(
-            r"(?:\b(?:TOTAL\s*MARKS?|TOTAL|GRAND\s*TOTAL|TOMAL\s*MARKS?|TOMAL|IOIAL\s*MARKS?|IOIAL|TOTL|TOTAI|IOTAL|T0TAL|OiAL|ALMNRES|OiALMNRES|AL\s*MARKS|AL\s*MRKS|மொத்த[ா-்]*)\b|Ioi[,\.\s]*UL\s*MaRkS|[\w\.,]{2,6}\s*MARKS?\s*:)",
+            r"(?:\b(?:TOTAL\s*MARKS?|TOTAL|GRAND\s*TOTAL|TOMAL\s*MARKS?|TOMAL|IOIAL\s*MARKS?|IOIAL\s*MARES?|IOIALMARES|IOIAL|TOTL|TOTAI|IOTAL|T0TAL|OiAL|ALMNRES|OiALMNRES|AL\s*MARKS|AL\s*MRKS|மொத்த[ா-்]*)\b|Ioi[,\.\s]*UL\s*MaRkS|[\w\.,]{2,6}\s*(?:MARKS?|MARES?)\s*[:;]?)",
             re.I
         )
         NON_TOTAL_RE = re.compile(r"\b(?:MAX(?:IMUM)?|MIN(?:IMUM)?|PASS\s*MARKS?|MARKS\s*OBTAINED|THEORY|PRACTICAL|IA/?PR|GRADE|POSITIONAL|SUB(?:JECT)?\s*CODE)\b", re.I)
@@ -731,7 +737,7 @@ def parse_extracted_fields(raw_detections):
                                 num_val = int(val)
                                 if 100 <= num_val <= 1200:
                                     fields["total_marks"] = val
-                                    total_conf, total_label_conf = max(0.85, _conf(cand)), max(0.85, _conf(it))
+                                    total_conf, total_label_conf = (_conf(cand) if _conf(cand) > 0 else 0.85), (_conf(it) if _conf(it) > 0 else 0.85)
                                     break
                             except ValueError:
                                 pass
@@ -787,7 +793,7 @@ def parse_extracted_fields(raw_detections):
                             if 100 <= n_val <= 1200:
                                 fields["total_marks"] = val
                                 c_v = _conf(it)
-                                total_conf, total_label_conf = (c_v if c_v > 0 else 0.85), 0.85
+                                total_conf, total_label_conf = (c_v if c_v > 0 else 0.85), 0.0
                                 break
                         except ValueError:
                             pass
@@ -818,9 +824,19 @@ def parse_extracted_fields(raw_detections):
         if not cand_txt:
             return []
         c_u = cand_txt.strip().upper()
-        # Avoid aggregate total boxes or column headers
+        # Avoid aggregate total boxes, labels, or column headers
         if any(t_k in c_u for t_k in ["TOTAL MARKS", "GRAND TOTAL", "MAXIMUM MARKS", "MINIMUM MARKS", "MAX MARKS", "MIN MARKS", "PERCENTAGE"]):
             return []
+        if re.search(r"\bTOTAL\b", c_u):
+            return []
+
+        # Aggregate total numbers (>= 120) should never be treated as single subject marks
+        try:
+            cleaned_num = cand_txt.strip().lstrip("0") or "0"
+            if int(cleaned_num) >= 120:
+                return []
+        except ValueError:
+            pass
 
         scs = []
         # 1. Standard 2-3 digit matches (e.g., '093', '99', '100', '075', '098P', '98(P)', '(98)')
@@ -829,9 +845,13 @@ def parse_extracted_fields(raw_detections):
             if 20 <= s_val <= 100 and s_val not in scs:
                 scs.append(s_val)
 
-        # 2. 4-character tokens with leading 0 (e.g. '0977' -> 97, '097,' -> 97)
-        for m_s in re.finditer(r"\b0([2-9]\d)(?:\d|[,.\-~'])\b", cand_txt):
+        # 2. Punctuation or repeated digit stutter (e.g. '097,' -> 97, '0977' -> 97)
+        for m_s in re.finditer(r"\b0?([2-9]\d)[,.\-~']\b", cand_txt):
             s_val = int(m_s.group(1).lstrip("0") or "0")
+            if 20 <= s_val <= 100 and s_val not in scs:
+                scs.append(s_val)
+        for m_s in re.finditer(r"\b0([2-9])(\d)\2\b", cand_txt):
+            s_val = int(f"{m_s.group(1)}{m_s.group(2)}")
             if 20 <= s_val <= 100 and s_val not in scs:
                 scs.append(s_val)
 
@@ -923,6 +943,8 @@ def parse_extracted_fields(raw_detections):
                     if k not in candidate_indices and k not in seen_score_boxes:
                         k_u = raw_detections[k]["text"].strip().upper()
                         if any(re.search(r"\b" + re.escape(s) + r"\b", k_u) for s in COMMON_SUBJECTS):
+                            break
+                        if any(t_k in k_u for t_k in ["TOTAL MARKS", "GRAND TOTAL", "AGGREGATE", "TOTAL :", "TOTAL:"]) or re.search(r"\bTOTAL\b", k_u):
                             break
                         candidate_indices.append(k)
 
@@ -1095,51 +1117,51 @@ def parse_extracted_fields(raw_detections):
                     for _, _, k_r in rec_scores:
                         seen_score_boxes.add(k_r)
 
-            # If no subject name text was recognized on the row, contextually infer based on curriculum position
-            if not recovered_subj:
-                existing_names = [s["subject"] for s in subject_marks]
-                if "PHYSICS" in existing_names and "CHEMISTRY" in existing_names and "MATHEMATICS" in existing_names:
-                    # In standard 12th science, missing subject is Biology or Computer Science
-                    if "BIOLOGY" not in seen_subjects:
-                        recovered_subj = "BIOLOGY"
-                    elif "COMPUTER SCIENCE" not in seen_subjects:
-                        recovered_subj = "COMPUTER SCIENCE"
+                # If no subject name text was recognized on the row, contextually infer based on curriculum position
+                if not recovered_subj:
+                    existing_names = [s["subject"] for s in subject_marks]
+                    if "PHYSICS" in existing_names and "CHEMISTRY" in existing_names and "MATHEMATICS" in existing_names:
+                        # In standard 12th science, missing subject is Biology or Computer Science
+                        if "BIOLOGY" not in seen_subjects:
+                            recovered_subj = "BIOLOGY"
+                        elif "COMPUTER SCIENCE" not in seen_subjects:
+                            recovered_subj = "COMPUTER SCIENCE"
+                        else:
+                            recovered_subj = "CORE SCIENCE"
+                    elif "TAMIL" in existing_names and "ENGLISH" in existing_names and "MATHEMATICS" in existing_names and "SCIENCE" in existing_names:
+                        if "SOCIAL SCIENCE" not in seen_subjects:
+                            recovered_subj = "SOCIAL SCIENCE"
+                        else:
+                            recovered_subj = "ADDITIONAL SUBJECT"
+                    elif "COMMERCE" in existing_names and "ACCOUNTANCY" in existing_names:
+                        if "ECONOMICS" not in seen_subjects:
+                            recovered_subj = "ECONOMICS"
+                        elif "BUSINESS MATHEMATICS" not in seen_subjects:
+                            recovered_subj = "BUSINESS MATHEMATICS"
+                        else:
+                            recovered_subj = "ELECTIVE"
+                    elif "TAMIL" not in seen_subjects:
+                        recovered_subj = "TAMIL"
+                    elif "ENGLISH" not in seen_subjects:
+                        recovered_subj = "ENGLISH"
                     else:
-                        recovered_subj = "CORE SCIENCE"
-                elif "TAMIL" in existing_names and "ENGLISH" in existing_names and "MATHEMATICS" in existing_names and "SCIENCE" in existing_names:
-                    if "SOCIAL SCIENCE" not in seen_subjects:
-                        recovered_subj = "SOCIAL SCIENCE"
-                    else:
-                        recovered_subj = "ADDITIONAL SUBJECT"
-                elif "COMMERCE" in existing_names and "ACCOUNTANCY" in existing_names:
-                    if "ECONOMICS" not in seen_subjects:
-                        recovered_subj = "ECONOMICS"
-                    elif "BUSINESS MATHEMATICS" not in seen_subjects:
-                        recovered_subj = "BUSINESS MATHEMATICS"
-                    else:
-                        recovered_subj = "ELECTIVE"
-                elif "TAMIL" not in seen_subjects:
-                    recovered_subj = "TAMIL"
-                elif "ENGLISH" not in seen_subjects:
-                    recovered_subj = "ENGLISH"
-                else:
-                    for cand in ["BIOLOGY", "COMPUTER SCIENCE", "MATHEMATICS", "SOCIAL SCIENCE", "ECONOMICS"]:
-                        if cand not in seen_subjects:
-                            recovered_subj = cand
-                            break
-                    if not recovered_subj:
-                        recovered_subj = "ELECTIVE"
+                        for cand in ["BIOLOGY", "COMPUTER SCIENCE", "MATHEMATICS", "SOCIAL SCIENCE", "ECONOMICS"]:
+                            if cand not in seen_subjects:
+                                recovered_subj = cand
+                                break
+                        if not recovered_subj:
+                            recovered_subj = "ELECTIVE"
 
-            rec_entry = {
-                "subject": recovered_subj,
-                "marks": delta
-            }
-            if rec_theory is not None:
-                rec_entry["theory"] = rec_theory
-            if rec_practical is not None:
-                rec_entry["practical"] = rec_practical
-            subject_marks.append(rec_entry)
-            seen_subjects.add(recovered_subj)
+                rec_entry = {
+                    "subject": recovered_subj,
+                    "marks": delta
+                }
+                if rec_theory is not None:
+                    rec_entry["theory"] = rec_theory
+                if rec_practical is not None:
+                    rec_entry["practical"] = rec_practical
+                subject_marks.append(rec_entry)
+                seen_subjects.add(recovered_subj)
 
     # Clean up internal geometry tags
     for s in subject_marks:
@@ -1148,10 +1170,19 @@ def parse_extracted_fields(raw_detections):
     fields["subject_marks"] = subject_marks
 
     # 9. Marks Arithmetic Consistency Check
-    grading_scheme_indicators = is_cbse or any(k in joined_text for k in ["CGPA", "GRADE POINT", "POSITIONAL GRADE", "CUMULATIVE GRADE"]) or \
-                                ("POSITIONAL" in joined_text and "GRADE" in joined_text)
+    cgpa_scheme = any(k in joined_text for k in ["CGPA", "GRADE POINT", "CUMULATIVE GRADE"])
+    grading_scheme_indicators = is_cbse or cgpa_scheme or ("POSITIONAL" in joined_text and "GRADE" in joined_text)
 
-    if is_cbse or grading_scheme_indicators or not fields["total_marks"]:
+    if cgpa_scheme:
+        fields["arithmetic_check"] = {
+            "applicable": False,
+            "performed": False,
+            "consistent": None,
+            "reason": "GRADING_SCHEME_DETECTED",
+            "status": "NOT_APPLICABLE",
+            "details": "Document uses a grade point / CGPA system; direct marks summation is not applicable."
+        }
+    elif not fields["total_marks"]:
         computed_sum = sum(s["marks"] for s in subject_marks) if subject_marks else None
         if computed_sum and computed_sum > 0:
             fields["total_marks"] = str(computed_sum)
@@ -1350,7 +1381,7 @@ def main():
     gemini_ocr_metrics = None
     try:
         from gemini_vision import is_gemini_available, extract_certificate_with_gemini
-        if is_gemini_available():
+        if is_gemini_available() and os.environ.get("DEEPTRUST_FORCE_LOCAL_OCR", "0") != "1":
             use_gemini = True
     except Exception:
         use_gemini = False
