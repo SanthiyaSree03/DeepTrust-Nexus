@@ -1326,6 +1326,8 @@ function evaluateCertificateAuthenticity({
     };
   }
 
+  let classMismatch = null;
+
   const buildResult = (overrides) => {
     const result = {
       status,
@@ -1345,6 +1347,7 @@ function evaluateCertificateAuthenticity({
       tamperAnalysis,
       ocrMetrics,
       userInputs,
+      classMismatch: overrides.classMismatch !== undefined ? overrides.classMismatch : (typeof classMismatch !== "undefined" ? classMismatch : null),
       ...overrides,
     };
     result.qrVerification = deriveQrVerification({ qrAnalysis, cryptoResult, issuerTrust, engineStatus: result.status });
@@ -1388,6 +1391,67 @@ function evaluateCertificateAuthenticity({
       note: "Certificate number and candidate name not detected"
     });
     return buildResult({ status, statusText, summary, explanation, reviewReason });
+  }
+
+  // --- Step 2B: Class / Standard Selection Alignment Check ---
+  const selectedClass = String(userInputs?.classType || "").trim(); // "10" or "12"
+  const courseStr = (extractedFields.course || "").toLowerCase();
+  const rawStd = extractedFields.detected_standard;
+  let detectedStandard = null;
+  if (rawStd === "10" || rawStd === "12") {
+    detectedStandard = rawStd;
+  } else if (courseStr.includes("10th") || courseStr.includes("sslc") || courseStr.includes("class x") || courseStr.includes("secondary school leaving") || courseStr.includes("secondary school examination")) {
+    detectedStandard = "10";
+  } else if (courseStr.includes("12th") || courseStr.includes("hsc") || courseStr.includes("class xii") || courseStr.includes("higher secondary") || courseStr.includes("second year") || courseStr.includes("senior school") || courseStr.includes("intermediate")) {
+    detectedStandard = "12";
+  }
+
+  classMismatch = null;
+  if (selectedClass && detectedStandard) {
+    const selectedDisp = selectedClass === "12" ? "12th Standard" : (selectedClass === "10" ? "10th Standard" : `Class ${selectedClass}th`);
+    const detectedDisp = detectedStandard === "10" ? "10th Standard (SSLC Marksheet)" : (detectedStandard === "12" ? "12th Standard (HSC Marksheet)" : `Class ${detectedStandard}th`);
+
+    if (selectedClass !== detectedStandard) {
+      classMismatch = {
+        isMismatch: true,
+        selectedClass,
+        selectedClassDisplay: selectedDisp,
+        detectedClass: detectedStandard,
+        detectedClassDisplay: detectedDisp,
+        message: `Selected class '${selectedDisp}' conflicts with uploaded document '${detectedDisp}'`
+      };
+      status = "VERIFIED MISMATCH";
+      statusText = `Verified Mismatch (Class Selection Discrepancy: Selected ${selectedDisp} vs Uploaded ${detectedDisp})`;
+      summary = `Class discrepancy detected: You selected '${selectedDisp}', but the uploaded certificate is verified as a '${detectedDisp}'.`;
+      explanation = `The uploaded document was identified as a ${detectedDisp}, which directly contradicts the selected ${selectedDisp} option. Automated verification flags this qualification discrepancy.`;
+      evidenceChecks.unshift({
+        check: "Academic Class / Qualification Alignment",
+        passed: false,
+        note: `Selected ${selectedDisp} vs Uploaded ${detectedDisp}`
+      });
+      return buildResult({
+        status,
+        statusText,
+        summary,
+        explanation,
+        classMismatch,
+        discrepancies: [classMismatch.message]
+      });
+    } else {
+      classMismatch = {
+        isMismatch: false,
+        selectedClass,
+        selectedClassDisplay: selectedDisp,
+        detectedClass: detectedStandard,
+        detectedClassDisplay: detectedDisp,
+        message: `Selected class '${selectedDisp}' matches verified document standard`
+      };
+      evidenceChecks.push({
+        check: "Academic Class / Qualification Alignment",
+        passed: true,
+        note: `Selected ${selectedDisp} matches verified document standard`
+      });
+    }
   }
 
   // --- Step 3: Material Contradiction Checks (VERIFIED MISMATCH) ---
@@ -1895,6 +1959,20 @@ app.post("/api/verify", upload.single("marksheet"), (req, res) => {
         });
       }
 
+      // Defense-in-depth gate: Strictly enforce ONLY 10th and 12th standard marksheets
+      const extFields = ocrResult.extracted_fields || {};
+      const rawStd = extFields.detected_standard;
+      const courseStr = (extFields.course || "").toLowerCase();
+      const is10 = rawStd === "10" || courseStr.includes("10th") || courseStr.includes("sslc") || courseStr.includes("class x") || courseStr.includes("secondary school leaving") || courseStr.includes("secondary school examination");
+      const is12 = rawStd === "12" || courseStr.includes("12th") || courseStr.includes("hsc") || courseStr.includes("class xii") || courseStr.includes("higher secondary") || courseStr.includes("second year") || courseStr.includes("senior school") || courseStr.includes("intermediate");
+
+      if (!is10 && !is12) {
+        return res.status(422).json({
+          success: false,
+          error: "Invalid Document Type: Only 10th (SSLC) and 12th (HSC) standard marksheets can be processed. The uploaded file was not recognized as a 10th or 12th marksheet. Please upload a valid 10th or 12th marksheet document.",
+        });
+      }
+
       // Run Authenticity Verification Decision Engine (Priority 3)
       const verification = evaluateCertificateAuthenticity({
         extractedFields: ocrResult.extracted_fields || {},
@@ -1908,6 +1986,7 @@ app.post("/api/verify", upload.single("marksheet"), (req, res) => {
       return res.json({
         success: true,
         verification,
+        classMismatch: verification.classMismatch || null,
         digitalSignature: verification.digitalSignature,
         extractionAccuracy: verification.extractionAccuracy,
         authenticityLikelihood: verification.authenticityLikelihood,

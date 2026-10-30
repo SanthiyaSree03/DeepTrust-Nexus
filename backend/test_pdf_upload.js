@@ -116,10 +116,9 @@ async function runUploadTestSuite() {
     console.log(`  [PASS] Rejected oversized file: '${data2.error}'`);
 
     // -----------------------------------------------------------------------
-    // Test 3: Multer accepts valid PDF and forwards to OCR pipeline
+    // Test 3A: Reject blank / non-marksheet PDF (Strict Document Gate)
     // -----------------------------------------------------------------------
-    console.log("\n--- Test 3: Accept PDF Marksheet Upload ---");
-    // Minimal valid 1-page PDF
+    console.log("\n--- Test 3A: Reject Non-Marksheet Blank PDF ---");
     const minimalPdf =
       "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" +
       "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
@@ -127,7 +126,7 @@ async function runUploadTestSuite() {
       "xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000052 00000 n \n0000000101 00000 n \n" +
       "trailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF\n";
 
-    const pdfParts = [
+    const blankPdfParts = [
       `--${boundary}\r\n`,
       'Content-Disposition: form-data; name="classType"\r\n\r\n',
       "12\r\n",
@@ -135,29 +134,59 @@ async function runUploadTestSuite() {
       'Content-Disposition: form-data; name="board"\r\n\r\n',
       "State Board\r\n",
       `--${boundary}\r\n`,
-      'Content-Disposition: form-data; name="marksheet"; filename="valid_marksheet.pdf"\r\n',
+      'Content-Disposition: form-data; name="marksheet"; filename="blank.pdf"\r\n',
       "Content-Type: application/pdf\r\n\r\n",
       minimalPdf,
       `\r\n--${boundary}--\r\n`,
     ];
-    const pdfBuffer = Buffer.from(pdfParts.join(""), "utf-8");
+    const blankPdfBuffer = Buffer.from(blankPdfParts.join(""), "utf-8");
 
-    const res3 = await fetch(`${baseUrl}/api/verify`, {
+    const res3a = await fetch(`${baseUrl}/api/verify`, {
       method: "POST",
       headers: {
         "Content-Type": `multipart/form-data; boundary=${boundary}`,
       },
-      body: pdfBuffer,
+      body: blankPdfBuffer,
     });
 
-    const data3 = await res3.json();
-    assert.strictEqual(res3.status, 200, `Expected 200, got ${res3.status}: ${JSON.stringify(data3)}`);
-    assert.strictEqual(data3.success, true);
-    assert.ok(data3.verification, "Must include verification decision");
-    assert.ok(data3.documentMetadata, "Must include documentMetadata");
-    assert.strictEqual(data3.documentMetadata.format, "PDF");
-    assert.strictEqual(data3.documentMetadata.page_count, 1);
-    console.log(`  [PASS] Successfully accepted PDF marksheet: format=${data3.documentMetadata.format}, status=${data3.verification.status}`);
+    const data3a = await res3a.json();
+    assert.strictEqual(res3a.status, 422, `Expected 422 for blank PDF, got ${res3a.status}`);
+    assert.strictEqual(data3a.success, false);
+    assert.ok(data3a.error.includes("Only clear 10th and 12th standard marksheets can be processed"), `Unexpected error: ${data3a.error}`);
+    console.log(`  [PASS] Rejected non-marksheet PDF with status 422: '${data3a.error}'`);
+
+    // -----------------------------------------------------------------------
+    // Test 3B: Accept Valid PDF Marksheet Upload
+    // -----------------------------------------------------------------------
+    console.log("\n--- Test 3B: Accept Valid PDF Marksheet Upload ---");
+    const samplePdfPath = path.join(__dirname, "..", "ai", "sample_marksheet.pdf");
+    assert.ok(fs.existsSync(samplePdfPath), "sample_marksheet.pdf must exist");
+    const samplePdfBytes = fs.readFileSync(samplePdfPath);
+
+    const pdfPartsHead = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="classType"\r\n\r\n12\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="board"\r\n\r\nState Board\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="marksheet"; filename="valid_marksheet.pdf"\r\nContent-Type: application/pdf\r\n\r\n`
+    );
+    const pdfPartsTail = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const validPdfPayload = Buffer.concat([pdfPartsHead, samplePdfBytes, pdfPartsTail]);
+
+    const res3b = await fetch(`${baseUrl}/api/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      },
+      body: validPdfPayload,
+    });
+
+    const data3b = await res3b.json();
+    assert.strictEqual(res3b.status, 200, `Expected 200, got ${res3b.status}: ${JSON.stringify(data3b)}`);
+    assert.strictEqual(data3b.success, true);
+    assert.ok(data3b.verification, "Must include verification decision");
+    assert.ok(data3b.documentMetadata, "Must include documentMetadata");
+    assert.strictEqual(data3b.documentMetadata.format, "PDF");
+    assert.strictEqual(data3b.documentMetadata.page_count, 1);
+    console.log(`  [PASS] Successfully accepted valid PDF marksheet: format=${data3b.documentMetadata.format}, status=${data3b.verification.status}`);
 
     // -----------------------------------------------------------------------
     // Test 4: Preserves existing JPG/PNG Upload Behavior

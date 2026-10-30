@@ -621,35 +621,57 @@ def parse_extracted_fields(raw_detections):
     elif "BOARD OF HIGH SCHOOL" in joined_text or "MADHYAMIK SHIKSHA" in joined_text:
         fields["board"] = "Board of High School and Intermediate Education Uttar Pradesh"
 
-    # 4. Course / Examination Class
+    # 4. Course / Examination Class & Standard Identification
     # Distinguish 10th (SSLC) vs 12th (HSC); do not allow school name ("Higher Secondary School") to misclassify 10th certificates!
-    is_10th = any(k in joined_text for k in [
-        "SECONDARY SCHOOL LEAVING", "SSLC", "X STANDARD", "CLASS X",
-        "CLASS 10", "10TH STANDARD", "CERTIFICATE SL. NO. SEC", "CERTIFICATE SL.NO. SEC",
-        "SL. NO. SEC", "SEC 24", "இடைநிலைப் பள்ளி", "SECONDARY SCHOOL EXAMINATION"
-    ])
-    is_12th = any(k in joined_text for k in [
+    is_10th = (any(k in joined_text for k in [
+        "SECONDARY SCHOOL LEAVING", "SSLC", "X STANDARD",
+        "CLASS 10", "10TH STANDARD", "10TH STD", "CERTIFICATE SL. NO. SEC", "CERTIFICATE SL.NO. SEC",
+        "SL. NO. SEC", "SEC 24", "இடைநிலைப் பள்ளி", "SECONDARY SCHOOL EXAMINATION", "MATRICULATION",
+        "HIGH SCHOOL"
+    ]) or bool(re.search(r"\bCLASS\s*X\b(?!\s*I)", joined_text, re.I))
+       or bool(re.search(r"\b10TH\b", joined_text, re.I)))
+
+    is_12th = (any(k in joined_text for k in [
         "HIGHER SECONDARY", "SECOND YEAR", "HSC", "H.S.C", "H S C",
-        "CLASS XII", "CLASS 12", "12TH STANDARD", "12TH", "CERTIFICATE SL. NO. HSE",
+        "CLASS XII", "CLASS 12", "12TH STANDARD", "12TH STD", "CERTIFICATE SL. NO. HSE",
         "CERTIFICATE SL.NO. HSE", "SL. NO. HSE", "SL.NO. HSE", "SL NO HSE",
-        "HSE", "மேல்நிலைப்", "மேல்நிலை", "H S E", "SENIOR SCHOOL CERTIFICATE"
-    ]) or bool(re.search(r"HIGHER\s+S\S*\s*(?:COURSE|CERT|EXAM|COMM|COND)", joined_text, re.I))
+        "HSE", "மேல்நிலைப்", "மேல்நிலை", "H S E", "SENIOR SCHOOL CERTIFICATE",
+        "SENIOR SECONDARY", "INTERMEDIATE", "+2", "PLUS TWO"
+    ]) or bool(re.search(r"\b12TH\b", joined_text, re.I))
+       or bool(re.search(r"HIGHER\s+S\S*\s*(?:COURSE|CERT|EXAM|COMM|COND)", joined_text, re.I)))
+
+    fields["detected_standard"] = None
+    fields["detected_standard_label"] = None
 
     if is_10th and not is_12th:
         fields["course"] = "Secondary School Leaving Certificate (10th)"
+        fields["detected_standard"] = "10"
+        fields["detected_standard_label"] = "10th Standard (SSLC)"
     elif is_12th and not is_10th:
         fields["course"] = "Higher Secondary Examination (12th)"
+        fields["detected_standard"] = "12"
+        fields["detected_standard_label"] = "12th Standard (HSC)"
     elif is_10th and is_12th:
         if any(h in joined_text for h in ["SECONDARY SCHOOL LEAVING", "X STANDARD", "SEC", "இடைநிலைப் பள்ளி", "SECONDARY SCHOOL EXAMINATION"]):
             fields["course"] = "Secondary School Leaving Certificate (10th)"
+            fields["detected_standard"] = "10"
+            fields["detected_standard_label"] = "10th Standard (SSLC)"
         else:
             fields["course"] = "Higher Secondary Examination (12th)"
-    elif any(k in joined_text for k in ["SECONDARY SCHOOL", "10TH"]):
+            fields["detected_standard"] = "12"
+            fields["detected_standard_label"] = "12th Standard (HSC)"
+    elif any(k in joined_text for k in ["SECONDARY SCHOOL", "10TH", "CLASS X", "SSLC"]):
         fields["course"] = "Secondary School Leaving Certificate (10th)"
-    elif any(k in joined_text for k in ["HIGHER SECONDARY", "12TH", "SECOND YEAR", "HSC", "HSE"]):
+        fields["detected_standard"] = "10"
+        fields["detected_standard_label"] = "10th Standard (SSLC)"
+    elif any(k in joined_text for k in ["HIGHER SECONDARY", "12TH", "SECOND YEAR", "HSC", "HSE", "CLASS XII", "+2"]):
         fields["course"] = "Higher Secondary Examination (12th)"
+        fields["detected_standard"] = "12"
+        fields["detected_standard_label"] = "12th Standard (HSC)"
     elif fields.get("certificate_number") and str(fields["certificate_number"]).startswith("36"):
         fields["course"] = "Higher Secondary Examination (12th)"
+        fields["detected_standard"] = "12"
+        fields["detected_standard_label"] = "12th Standard (HSC)"
 
     # 5. Examination Year / Session
     exam_session_match = re.search(r"\b(MARCH|MAR|APRIL|APR|MAY|JUNE|JUN|JULY|JUL|AUGUST|AUG|SEPTEMBER|SEP|OCTOBER|OCT|NOVEMBER|NOV|DECEMBER|DEC)\.?\s*[-/]?\s*(20\d{2}|19\d{2})\b", joined_text, re.I)
@@ -1342,6 +1364,111 @@ def apply_name_region_reread(fields, image_bgr, raw_detections, ocr_reader=None,
         return {"attempted": False, "reason": f"ERROR: {type(e).__name__}: {e}"}
 
 
+NON_MARKSHEET_PATTERNS = [
+    (r"\b(AADHAAR|UIDAI|UNIQUE\s*IDENTIFICATION|MERA\s*AADHAAR|ENROLMENT\s*NO|ENROLLMENT\s*NO)\b", "Aadhaar Card / UIDAI Identity Document"),
+    (r"\b(INCOME\s*TAX\s*DEPARTMENT|PERMANENT\s*ACCOUNT\s*NUMBER|GOVT\.?\s*OF\s*INDIA.*INCOME\s*TAX)\b", "Permanent Account Number (PAN) Card"),
+    (r"\b(DRIVING\s*LICEN[CS]E|MOTOR\s*VEHICLES\s*DEPARTMENT|TRANSPORT\s*DEPARTMENT|LEARNER'?S\s*LICEN[CS]E)\b", "Driving Licence"),
+    (r"\b(REPUBLIC\s*OF\s*INDIA.*PASSPORT|PASSPORT.*REPUBLIC\s*OF\s*INDIA)\b", "Passport Document"),
+    (r"\b(ELECTION\s*COMMISSION\s*OF\s*INDIA|ELECTORAL\s*PHOTO\s*IDENTITY\s*CARD|VOTER\s*ID|EPIC\s*NO)\b", "Voter Identity Card"),
+    (r"\b(TAX\s*INVOICE|BILL\s*TO|INVOICE\s*NUMBER|INVOICE\s*NO|GSTIN|PAYMENT\s*RECEIPT|AMOUNT\s*DUE|BALANCE\s*DUE)\b", "Commercial Invoice or Billing Receipt"),
+    (r"\b(CURRICULUM\s*VITAE|RESUME|CAREER\s*OBJECTIVE|WORK\s*EXPERIENCE|JOB\s*TITLE)\b", "Resume / Curriculum Vitae"),
+    (r"\b(BACHELOR\s*OF|MASTER\s*OF|CONVOCATION|DEGREE\s*OF\s*BACHELOR|PROVISIONAL\s*CERTIFICATE.*DEGREE|DOCTOR\s*OF\s*PHILOSOPHY)\b", "University Degree / Higher Education Diploma"),
+]
+
+
+def validate_marksheet_type(raw_detections, joined_text, structured_fields):
+    """
+    Validates that the uploaded document is exclusively an authentic 10th or 12th educational marksheet.
+    Rejects any other document types (ID cards, degree certificates, invoices, random images/PDFs).
+    """
+    # 1. Check for explicit negative non-marksheet markers
+    for pattern, label in NON_MARKSHEET_PATTERNS:
+        if re.search(pattern, joined_text, re.I):
+            return {
+                "valid": False,
+                "reason": "UNSUPPORTED_DOCUMENT_TYPE",
+                "error": f"Invalid Document Type: Only 10th (SSLC) and 12th (HSC) standard marksheets can be processed. Detected: {label}. Please upload a valid 10th or 12th marksheet document."
+            }
+
+    # 2. Check for minimum readable text
+    alphanumeric_chars = re.findall(r"[A-Za-z0-9]", joined_text)
+    if len(alphanumeric_chars) < 15:
+        return {
+            "valid": False,
+            "reason": "INSUFFICIENT_TEXT",
+            "error": "Invalid Document: The uploaded image or PDF contains insufficient text or could not be recognized as a marksheet. Only clear 10th and 12th standard marksheets can be processed."
+        }
+
+    # Augment search text with extracted structured fields (board, course)
+    structured_extra = f"{structured_fields.get('board') or ''} {structured_fields.get('course') or ''}".upper()
+    search_text = f"{joined_text} {structured_extra}".strip()
+
+    # 3. Determine if 10th or 12th
+    std = structured_fields.get("detected_standard")
+    label = structured_fields.get("detected_standard_label")
+
+    if not std:
+        has_10_marker = any(k in search_text for k in [
+            "SECONDARY SCHOOL LEAVING", "SSLC", "X STANDARD", "CLASS 10",
+            "10TH STANDARD", "10TH STD", "CERTIFICATE SL. NO. SEC", "CERTIFICATE SL.NO. SEC",
+            "SL. NO. SEC", "SEC 24", "SECONDARY SCHOOL EXAMINATION", "MATRICULATION", "இடைநிலைப் பள்ளி",
+            "HIGH SCHOOL"
+        ]) or bool(re.search(r"\bCLASS\s*X\b(?!\s*I)", search_text, re.I)) or bool(re.search(r"\b10TH\b", search_text, re.I))
+
+        has_12_marker = any(k in search_text for k in [
+            "HIGHER SECONDARY", "SECOND YEAR", "HSC", "H.S.C", "H S C", "CLASS XII",
+            "CLASS 12", "12TH STANDARD", "12TH STD", "CERTIFICATE SL. NO. HSE", "CERTIFICATE SL.NO. HSE",
+            "SL. NO. HSE", "HSE", "SENIOR SCHOOL CERTIFICATE", "SENIOR SECONDARY", "INTERMEDIATE",
+            "மேல்நிலைப் பள்ளி", "மேல்நிலை", "+2", "PLUS TWO"
+        ]) or bool(re.search(r"\b12TH\b", search_text, re.I))
+
+        if has_10_marker and not has_12_marker:
+            std = "10"
+            label = "10th Standard (SSLC)"
+        elif has_12_marker and not has_10_marker:
+            std = "12"
+            label = "12th Standard (HSC)"
+        elif has_10_marker and has_12_marker:
+            if any(h in search_text for h in ["SECONDARY SCHOOL LEAVING", "SSLC", "X STANDARD", "SECONDARY SCHOOL EXAMINATION"]):
+                std = "10"
+                label = "10th Standard (SSLC)"
+            else:
+                std = "12"
+                label = "12th Standard (HSC)"
+
+    if not std:
+        return {
+            "valid": False,
+            "reason": "NOT_10TH_OR_12TH_MARKSHEET",
+            "error": "Invalid Document Type: Only 10th (SSLC) and 12th (HSC) standard marksheets can be processed. The uploaded file was not recognized as a 10th or 12th marksheet. Please upload a valid 10th or 12th marksheet document."
+        }
+
+    # 4. Educational marksheet feature validation
+    has_educational_markers = bool(structured_fields.get("subject_marks")) or any(k in search_text for k in [
+        "BOARD", "EXAMINATION", "EXAMINATIONS", "MARKS", "SUBJECT", "CERTIFICATE",
+        "THEORY", "PRACTICAL", "TOTAL", "ROLL", "REGISTER", "PASS", "FAIL",
+        "DGE", "CBSE", "ICSE", "CISCE", "GRADE", "தேர்வர்", "மதிப்பெண்", "சான்றிதழ்",
+        "GOVERNMENT", "TAMIL NADU", "TAMILNADU", "CHENNAI", "SCHOOL", "CENTRAL BOARD", "STATE BOARD"
+    ])
+    if not has_educational_markers:
+        return {
+            "valid": False,
+            "reason": "NOT_AN_EDUCATIONAL_MARKSHEET",
+            "error": "Invalid Document Type: The uploaded document does not appear to be an educational examination marksheet. Only 10th and 12th marksheets can be processed."
+        }
+
+    structured_fields["detected_standard"] = std
+    structured_fields["detected_standard_label"] = label
+    if not structured_fields.get("course"):
+        structured_fields["course"] = "Secondary School Leaving Certificate (10th)" if std == "10" else "Higher Secondary Examination (12th)"
+
+    return {
+        "valid": True,
+        "standard": std,
+        "standard_label": label
+    }
+
+
 def main():
     if len(sys.argv) < 2:
         sys.stdout = real_stdout
@@ -1430,6 +1557,20 @@ def main():
 
         # Targeted re-read of the name value region when the whole-page read is not CONFIDENT.
         name_region_diag = apply_name_region_reread(structured_fields, primary_page_bgr, raw_detections)
+
+    # 3. Document Type Gate: Strictly enforce ONLY 10th and 12th marksheet processing
+    all_texts = [d["text"].strip() for d in raw_detections if d.get("text")]
+    joined_text = " ".join(all_texts).upper()
+    doc_val = validate_marksheet_type(raw_detections, joined_text, structured_fields)
+    if not doc_val["valid"]:
+        sys.stdout = real_stdout
+        print(json.dumps({
+            "success": False,
+            "error": doc_val["error"],
+            "rejection_reason": doc_val["reason"],
+            "document_type_rejected": True
+        }))
+        sys.exit(0)
 
     try:
         qr_analysis = analyze_certificate_qr(primary_page_bgr, ocr_fields=structured_fields)

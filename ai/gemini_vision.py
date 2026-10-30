@@ -82,9 +82,13 @@ CRITICAL INSTRUCTIONS:
 2. Read the CANDIDATE NAME with absolute precision (e.g., 'SANTHIYA SREE S' or 'SARAVANAVEL C').
 3. Extract each subject row accurately: subject name, theory marks, practical marks, internal marks, and total marks.
 4. Extract certificate number, permanent register number / roll number, session/year, board, and overall total marks.
+5. STRICT DOCUMENT RESTRICTION: Determine if the document is an authentic 10th standard (SSLC/Class X) or 12th standard (HSC/Class XII) marksheet. If it is NOT (e.g. Aadhaar card, PAN card, driver's license, passport, voter ID, college degree, diploma, invoice, resume, or random photo), set "is_valid_marksheet": false, "detected_standard": null, "rejection_reason": "Specific reason why this document is rejected". If it is 10th marksheet, set "is_valid_marksheet": true, "detected_standard": "10". If 12th marksheet, set "is_valid_marksheet": true, "detected_standard": "12".
 
 Return ONLY a valid JSON object with the following schema:
 {
+  "is_valid_marksheet": true,
+  "detected_standard": "10 or 12 or null",
+  "rejection_reason": null,
   "candidate_name": "FULL STUDENT NAME IN UPPERCASE",
   "certificate_number": "Certificate serial number or null",
   "registration_number": "Permanent register number or roll number",
@@ -207,11 +211,28 @@ Return ONLY a valid JSON object with the following schema:
         "details": f"Calculated subject sum ({computed_sum}) matches recorded total ({total_marks}). Verified by Gemini Vision AI."
     }
 
+    std = data.get("detected_standard")
+    if not std or str(std) not in ["10", "12"]:
+        c_lower = course.lower()
+        if any(k in c_lower for k in ["10th", "sslc", "class x", "secondary"]):
+            std = "10"
+        elif any(k in c_lower for k in ["12th", "hsc", "class xii", "higher secondary", "second year"]):
+            std = "12"
+        else:
+            std = None
+
+    std_label = "10th Standard (SSLC)" if std == "10" else ("12th Standard (HSC)" if std == "12" else None)
+    is_valid = bool(data.get("is_valid_marksheet", True) and std in ["10", "12"])
+
     structured_fields = {
         "certificate_number": cert_num,
         "candidate_name": candidate_name,
         "board": board,
-        "course": course,
+        "course": course or std_label,
+        "detected_standard": std if is_valid else None,
+        "detected_standard_label": std_label if is_valid else None,
+        "is_valid_marksheet": is_valid,
+        "rejection_reason": data.get("rejection_reason"),
         "total_marks": total_marks,
         "total_marks_in_words": data.get("total_marks_in_words"),
         "registration_number": reg_num,
@@ -250,6 +271,12 @@ Return ONLY a valid JSON object with the following schema:
 
     # Synthesize high-confidence synthetic detection items for downstream modules
     raw_detections = []
+    if cert_num:
+        raw_detections.append({"text": cert_num, "confidence": 0.99, "mean_confidence": 0.99})
+    if board:
+        raw_detections.append({"text": board, "confidence": 0.99, "mean_confidence": 0.99})
+    if course:
+        raw_detections.append({"text": course, "confidence": 0.99, "mean_confidence": 0.99})
     if candidate_name:
         raw_detections.append({"text": candidate_name, "confidence": 0.99, "mean_confidence": 0.99})
     if reg_num:

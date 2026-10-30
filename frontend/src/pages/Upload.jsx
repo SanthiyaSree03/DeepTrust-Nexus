@@ -106,6 +106,19 @@ function Upload() {
           Upload your 10th or 12th marksheet for AI OCR scanning &amp; authoritative verification.
         </p>
 
+        <div style={{
+          fontSize: "12px",
+          color: "#334155",
+          backgroundColor: "#f1f5f9",
+          padding: "8px 12px",
+          borderRadius: "6px",
+          marginBottom: "18px",
+          borderLeft: "3px solid #2563eb",
+          lineHeight: "1.5"
+        }}>
+          ℹ️ <strong>Permitted Documents:</strong> Only <strong>10th Standard (SSLC)</strong> and <strong>12th Standard (HSC)</strong> marksheets can be processed. Other documents (e.g., Aadhaar cards, PAN cards, college degrees, bills, random images) are automatically rejected.
+        </div>
+
         {errorMessage && (
           <div
             style={{
@@ -131,8 +144,8 @@ function Upload() {
             disabled={isLoading}
           >
             <option value="">Select Class</option>
-            <option value="10">10th</option>
-            <option value="12">12th</option>
+            <option value="10">10th Standard (SSLC)</option>
+            <option value="12">12th Standard (HSC)</option>
           </select>
 
           <label>Board</label>

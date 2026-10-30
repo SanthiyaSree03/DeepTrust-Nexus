@@ -63,6 +63,19 @@ function Result() {
   const qrV = verification.qrVerification || data.qrVerification || null;
   const sigV = verification.signatureVerification || data.signatureVerification || null;
 
+  const classMismatch = data.classMismatch || verification.classMismatch || null;
+  const selectedClass = String(userInputs?.classType || classMismatch?.selectedClass || "").trim();
+  const rawDetectedStd = String(
+    classMismatch?.detectedClass ||
+    extractedFields.detected_standard ||
+    ((extractedFields.course || "").toLowerCase().includes("10th") || (extractedFields.course || "").toLowerCase().includes("sslc") || (extractedFields.course || "").toLowerCase().includes("class x") ? "10" : "") ||
+    ((extractedFields.course || "").toLowerCase().includes("12th") || (extractedFields.course || "").toLowerCase().includes("hsc") || (extractedFields.course || "").toLowerCase().includes("class xii") || (extractedFields.course || "").toLowerCase().includes("higher secondary") ? "12" : "")
+  ).trim();
+
+  const isClassMismatch = Boolean(classMismatch ? classMismatch.isMismatch : (selectedClass && rawDetectedStd && selectedClass !== rawDetectedStd));
+  const selectedClassDisplay = classMismatch?.selectedClassDisplay || (selectedClass === "12" ? "12th Standard" : (selectedClass === "10" ? "10th Standard" : (selectedClass ? `Class ${selectedClass}th` : "Not specified")));
+  const detectedClassDisplay = classMismatch?.detectedClassDisplay || (rawDetectedStd === "10" ? "10th Standard (SSLC Marksheet)" : (rawDetectedStd === "12" ? "12th Standard (HSC Marksheet)" : (extractedFields.course || "Not detected")));
+
   // Primary Status Theme Palette
   let statusTheme;
   if (status === "AUTHENTICITY VERIFIED") {
@@ -84,8 +97,8 @@ function Result() {
       badgeBg: "#fee2e2",
       badgeColor: "#991b1b",
       icon: "⚠️",
-      title: "Verified Mismatch Detected",
-      subtitle: "Material conflict identified between document text and authoritative / QR data.",
+      title: isClassMismatch ? "Class Selection Mismatch Detected" : "Verified Mismatch Detected",
+      subtitle: verification.summary || (isClassMismatch ? `Selected ${selectedClassDisplay}, but uploaded document is ${detectedClassDisplay}.` : "Material conflict identified between document text and authoritative / QR data."),
     };
   } else if (status === "SUSPECTED TAMPERING") {
     statusTheme = {
@@ -430,6 +443,123 @@ function Result() {
             </span>
           </div>
 
+          {/* Class / Standard Mismatch Alert Banner */}
+          {isClassMismatch && (
+            <div
+              style={{
+                marginTop: "18px",
+                padding: "16px 20px",
+                backgroundColor: "#fff1f2",
+                border: "2px solid #f43f5e",
+                borderRadius: "12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: "14px",
+                boxShadow: "0 4px 14px rgba(244, 63, 94, 0.12)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                <span style={{ fontSize: "32px", flexShrink: 0 }}>🚨</span>
+                <div>
+                  <div style={{ fontSize: "12px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "1px", color: "#be123c", marginBottom: "4px" }}>
+                    Standard / Class Selection Mismatch Detected
+                  </div>
+                  <div style={{ fontSize: "15px", color: "#881337", fontWeight: "700", lineHeight: "1.6" }}>
+                    Selected Option:{" "}
+                    <span
+                      style={{
+                        backgroundColor: "#fef08a",
+                        color: "#854d0e",
+                        padding: "4px 12px",
+                        borderRadius: "6px",
+                        fontWeight: "900",
+                        fontSize: "15px",
+                        border: "1.5px solid #eab308",
+                        display: "inline-block",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                      }}
+                    >
+                      {selectedClassDisplay}
+                    </span>
+                    {"  "} ➔ {"  "}
+                    Detected Marksheet:{" "}
+                    <span
+                      style={{
+                        backgroundColor: "#fecdd3",
+                        color: "#9f1239",
+                        padding: "4px 12px",
+                        borderRadius: "6px",
+                        fontWeight: "900",
+                        fontSize: "15px",
+                        border: "1.5px solid #fb7185",
+                        display: "inline-block",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                      }}
+                    >
+                      {detectedClassDisplay}
+                    </span>
+                  </div>
+                  <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#9f1239", fontWeight: "500" }}>
+                    The uploaded document was identified as a <strong>{detectedClassDisplay}</strong>, which does not match the <strong>{selectedClassDisplay}</strong> option selected during submission.
+                  </p>
+                </div>
+              </div>
+              <span
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: "24px",
+                  fontSize: "13px",
+                  fontWeight: "900",
+                  backgroundColor: "#e11d48",
+                  color: "#ffffff",
+                  letterSpacing: "0.5px",
+                  boxShadow: "0 2px 8px rgba(225, 29, 72, 0.4)",
+                  border: "1px solid #be123c",
+                }}
+              >
+                CLASS MISMATCH
+              </span>
+            </div>
+          )}
+
+          {!isClassMismatch && selectedClass && (
+            <div
+              style={{
+                marginTop: "16px",
+                padding: "12px 18px",
+                backgroundColor: "#f0fdf4",
+                border: "1.5px solid #86efac",
+                borderRadius: "10px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                fontSize: "14px",
+                color: "#166534",
+                fontWeight: "600",
+              }}
+            >
+              <span style={{ fontSize: "18px" }}>✅</span>
+              <div>
+                Selected Class:{" "}
+                <span
+                  style={{
+                    backgroundColor: "#dcfce7",
+                    color: "#166534",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    fontWeight: "800",
+                    border: "1px solid #86efac",
+                  }}
+                >
+                  {selectedClassDisplay}
+                </span>{" "}
+                matches verified document standard (<strong>{detectedClassDisplay}</strong>).
+              </div>
+            </div>
+          )}
+
           {/* Potential Tampering / AI Generation Alert when QR is unauthenticatable */}
           {isQrUnauthenticatable && (
             <div
@@ -557,18 +687,61 @@ function Result() {
             </div>
 
             {/* Field 4: Course / Class */}
-            <div style={{ backgroundColor: "#f8fafc", borderRadius: "10px", padding: "16px", border: "1px solid #e2e8f0" }}>
+            <div
+              style={{
+                backgroundColor: isClassMismatch ? "#fff1f2" : "#f8fafc",
+                borderRadius: "10px",
+                padding: "16px",
+                border: `1.5px solid ${isClassMismatch ? "#f43f5e" : "#e2e8f0"}`,
+                boxShadow: isClassMismatch ? "0 2px 10px rgba(244, 63, 94, 0.08)" : "none",
+              }}
+            >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "#64748b", letterSpacing: "0.5px" }}>Course / Qualification</span>
-                <span style={{ fontSize: "11px", fontWeight: "700", padding: "2px 8px", borderRadius: "10px", backgroundColor: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1" }}>
-                  {extractedFields.course ? "Document OCR" : "User Input"}
+                <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: isClassMismatch ? "#be123c" : "#64748b", letterSpacing: "0.5px" }}>
+                  Course / Qualification
+                </span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: "800",
+                    padding: "2px 8px",
+                    borderRadius: "10px",
+                    backgroundColor: isClassMismatch ? "#fecdd3" : "#f1f5f9",
+                    color: isClassMismatch ? "#9f1239" : "#475569",
+                    border: `1px solid ${isClassMismatch ? "#fca5a5" : "#cbd5e1"}`,
+                  }}
+                >
+                  {isClassMismatch ? "Class Mismatch" : (extractedFields.course ? "Document OCR" : "User Input")}
                 </span>
               </div>
-              <div style={{ fontSize: "18px", fontWeight: "700", color: "#0f172a", marginBottom: "4px" }}>
-                {extractedFields.course || (userInputs.classType ? `Class ${userInputs.classType}th` : "Not specified")}
+              <div style={{ marginBottom: "6px" }}>
+                {selectedClass && (
+                  <div style={{ fontSize: "13px", color: isClassMismatch ? "#9f1239" : "#64748b", marginBottom: "4px" }}>
+                    Selected in Form:{" "}
+                    <span
+                      style={{
+                        backgroundColor: isClassMismatch ? "#fef08a" : "#e2e8f0",
+                        color: isClassMismatch ? "#854d0e" : "#0f172a",
+                        fontWeight: "800",
+                        padding: "2px 8px",
+                        borderRadius: "4px",
+                        fontSize: "13px",
+                        border: isClassMismatch ? "1px solid #facc15" : "1px solid #cbd5e1",
+                        display: "inline-block",
+                      }}
+                    >
+                      {selectedClassDisplay}
+                    </span>
+                  </div>
+                )}
+                <div style={{ fontSize: "17px", fontWeight: "800", color: isClassMismatch ? "#be123c" : "#0f172a" }}>
+                  {extractedFields.course || detectedClassDisplay}
+                </div>
               </div>
-              <div style={{ fontSize: "12px", color: "#64748b" }}>
-                {extractedFields.course ? "Extracted from examination header" : "Specified during upload session"}
+              <div style={{ fontSize: "12px", color: isClassMismatch ? "#be123c" : "#64748b", fontWeight: isClassMismatch ? "600" : "normal" }}>
+                {isClassMismatch
+                  ? `⚠️ Discrepancy: Selected '${selectedClassDisplay}', but certificate is '${detectedClassDisplay}'`
+                  : (extractedFields.course ? "Extracted from examination header" : "Specified during upload session")}
               </div>
             </div>
 
